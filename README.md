@@ -1,0 +1,186 @@
+<div align="center">
+
+# 🎒 KidsNotices — كيدز نوتيسز
+
+### منصة SaaS متكاملة لإدارة المؤسسات التعليمية بالمغرب
+### Plateforme SaaS tout-en-un pour la gestion des établissements scolaires au Maroc
+
+🔗 **[kidsnotices.ma](https://kidsnotices.ma/)**
+
+**[العربية ↓](#-بالعربية)** · **[Français ↓](#-en-français)**
+
+</div>
+
+---
+
+## 🇲🇦 بالعربية
+
+### ما هي المنصة؟
+
+**KidsNotices** منصة سحابية (SaaS) متعددة المستأجرين (Multi-Tenant) — كل مؤسسة تعليمية تحصل على فضائها المستقل والآمن الخاص بها على نفس المنصة — مصمَّمة خصيصاً للمدارس والمجموعات المدرسية الخصوصية بالمغرب. تربط المنصة **الإدارة، الأساتذة، أولياء الأمور، التلاميذ، الحراسة العامة، والسائقين** في مكان واحد، بواجهة كاملة بالعربية والفرنسية (مع دعم الكتابة من اليمين لليسار)، متاحة عبر المتصفح، كتطبيق ويب مثبَّت (PWA)، وكتطبيق أندرويد مخصَّص.
+
+### ✨ الخصائص والمزايا
+
+<table>
+<tr><td valign="top" width="50%">
+
+#### 🏫 لوحات متعددة الأدوار
+- واجهات مستقلة: الإدارة، الأساتذة، أولياء الأمور، التلاميذ، الحراسة العامة، السائقون، المساعدون الإداريون
+- نظام صلاحيات دقيق للمساعدين (عرض/تعديل لكل وحدة على حدة)
+
+#### 📚 الحياة الدراسية اليومية
+- استعمال الزمن الأسبوعي القابل للبناء
+- تسجيل الحضور والغياب (تلاميذ وأساتذة) بواجهة مصفوفة سريعة
+- النقط والتقييمات، متوافقة مع صيغة استيراد/تصدير "مسار" (Massar)
+- الدروس والواجبات المنزلية مع إشعار فوري لأولياء الأمور
+- الإشعارات والإعلانات المدرسية
+
+#### 💬 التواصل
+- مراسلة ثنائية الاتجاه: الإدارة/الحراسة ↔ أولياء الأمور
+- مراسلة الأساتذة وأولياء الأمور من مكان واحد
+- إشعارات فورية (Web Push) على الهاتف والحاسوب
+
+#### 🚌 النقل المدرسي
+- تتبُّع مباشر لموقع الحافلة عبر الخريطة (GPS حي)
+- رسائل صوتية من السائق لأولياء الأمور
+- أحداث الرحلة لحظة بلحظة (انطلاق، وصول، تأخر)
+
+#### 🍽️ المقصف المدرسي
+- قائمة أسبوعية للوجبات
+- طلب وتسديد مباشر من فضاء ولي الأمر
+
+</td><td valign="top" width="50%">
+
+#### 💰 التدبير المالي
+- الواجب الشهري للتلاميذ، مع تخفيضات الإخوة وأبناء الموظفين
+- تعويضات الأساتذة الساعاتيين محسوبة تلقائياً من الحصص الفعلية
+
+#### 🏥 الحراسة العامة والصحة
+- طلبات المغادرة وتفويضات الاستلام (محمية عبر QR)
+- السجل الصحي، الأدوية اليومية وسجل إعطائها، حالات الطوارئ
+- سجلات السلوك، الامتحانات، الشهادات المدرسية
+
+#### 📊 الإحصاء المدرسي السنوي
+- كل معطيات الإحصاء الرسمي (الحركية المدرسية، البنية المادية، الأساتذة الساعاتيون...) في مكان واحد
+
+#### 🔐 الأمان والموثوقية
+- نسخ احتياطية يومية تلقائية لكل مؤسسة على حدة، مع استرجاع بضغطة زر
+- تسجيل دخول آمن عبر مسح QR (لولي الأمر وللطاقم)
+- دعم فني عن بُعد بموافقة صريحة وسجل تدقيق كامل
+
+#### 📱 متاحة أينما كنت
+- تطبيق ويب مثبَّت (PWA) على الهاتف والحاسوب
+- تطبيق أندرويد مخصَّص
+- واجهة كاملة بالعربية والفرنسية
+
+</td></tr>
+</table>
+
+### 🧪 مدرسة تجريبية — جرّب المنصة الآن
+
+يمكنك تجربة كل ميزات المنصة مباشرة عبر مدرسة نموذجية كاملة (بيانات وهمية بالكامل — أسماء وأرقام غير حقيقية، لا علاقة لها بأي مؤسسة أو شخص فعلي):
+
+🔗 **رابط المنصة**: https://kidsnotices.ma/
+
+| الدور | البريد الإلكتروني | كلمة المرور |
+|---|---|---|
+| 👤 مدير المؤسسة | `admin@najah-rabat.ma` | `vNS783pN` |
+| 🛡️ حارس(ة) عام(ة) | `guard1@najah-rabat.ma` | `dKZYtMvz` |
+| 📋 مساعد(ة) إداري(ة) | `assistant1@najah-rabat.ma` | `M86mQKNC` |
+| 🚌 سائق(ة) النقل المدرسي | `driver1@najah-rabat.ma` | `CShEfVwz` |
+| 👩‍🏫 أستاذ(ة) | `teacher01@najah-rabat.ma` | `P6ZSCU2Y` |
+| 👪 ولي(ة) أمر | `parent0001@najah-rabat.ma` | `fj4xqMh8` |
+| 🎒 تلميذ(ة) | `student0001@najah-rabat.ma` | `sjaxqmJm` |
+
+> ⚠️ هذه بيئة تجربة مخصَّصة للعرض فقط — كل البيانات (الأسماء، الأرقام، السجلات) وهمية بالكامل ومُولَّدة اصطناعياً.
+
+---
+
+## 🇫🇷 En français
+
+### Qu'est-ce que la plateforme ?
+
+**KidsNotices** est une plateforme cloud (SaaS) multi-tenant — chaque établissement dispose de son propre espace indépendant et sécurisé sur la même plateforme — conçue spécifiquement pour les écoles et groupes scolaires privés au Maroc. Elle relie **la direction, les enseignants, les parents, les élèves, la surveillance générale et les chauffeurs** en un seul endroit, avec une interface entièrement bilingue arabe/français, accessible via navigateur, comme application web installable (PWA), et via une application Android dédiée.
+
+### ✨ Fonctionnalités et avantages
+
+<table>
+<tr><td valign="top" width="50%">
+
+#### 🏫 Tableaux de bord multi-rôles
+- Interfaces dédiées : direction, enseignants, parents, élèves, surveillance générale, chauffeurs, assistants administratifs
+- Système de permissions granulaire pour les assistants (consultation/modification par module)
+
+#### 📚 Vie scolaire quotidienne
+- Emploi du temps hebdomadaire personnalisable
+- Présences et absences (élèves et enseignants) via une interface matricielle rapide
+- Notes et évaluations, compatibles avec le format d'import/export "Massar"
+- Leçons et devoirs à domicile, avec notification instantanée aux parents
+- Annonces et informations scolaires
+
+#### 💬 Communication
+- Messagerie bidirectionnelle : direction/surveillance ↔ parents
+- Messagerie enseignants-parents centralisée
+- Notifications push instantanées (mobile et ordinateur)
+
+#### 🚌 Transport scolaire
+- Suivi en direct de la position du bus sur carte (GPS)
+- Messages vocaux du chauffeur aux parents
+- Événements du trajet en temps réel (départ, arrivée, retard)
+
+#### 🍽️ Cantine scolaire
+- Menu hebdomadaire
+- Commande et paiement directement depuis l'espace parent
+
+</td><td valign="top" width="50%">
+
+#### 💰 Gestion financière
+- Échéances mensuelles des élèves, avec réductions fratrie et enfants du personnel
+- Rémunération des enseignants vacataires calculée automatiquement selon les séances réellement effectuées
+
+#### 🏥 Surveillance générale et santé
+- Demandes de sortie et autorisations de récupération (protégées par QR)
+- Dossier médical, médicaments quotidiens et leur registre d'administration, incidents d'urgence
+- Dossiers disciplinaires, examens, attestations scolaires
+
+#### 📊 Recensement scolaire annuel
+- Toutes les données du recensement officiel (mobilité scolaire, infrastructures, enseignants vacataires...) centralisées
+
+#### 🔐 Sécurité et fiabilité
+- Sauvegardes quotidiennes automatiques par établissement, restauration en un clic
+- Connexion sécurisée par QR code (parents et personnel)
+- Assistance technique à distance avec consentement explicite et journal d'audit complet
+
+#### 📱 Accessible partout
+- Application web installable (PWA) sur mobile et ordinateur
+- Application Android dédiée
+- Interface entièrement bilingue arabe/français
+
+</td></tr>
+</table>
+
+### 🧪 École de démonstration — essayez la plateforme dès maintenant
+
+Vous pouvez tester toutes les fonctionnalités de la plateforme via une école modèle complète (données entièrement fictives — noms et numéros non réels, sans lien avec un établissement ou une personne existante) :
+
+🔗 **Lien de la plateforme** : https://kidsnotices.ma/
+
+| Rôle | E-mail | Mot de passe |
+|---|---|---|
+| 👤 Directeur/Directrice | `admin@najah-rabat.ma` | `vNS783pN` |
+| 🛡️ Surveillant(e) général(e) | `guard1@najah-rabat.ma` | `dKZYtMvz` |
+| 📋 Assistant(e) administratif(ve) | `assistant1@najah-rabat.ma` | `M86mQKNC` |
+| 🚌 Chauffeur du transport scolaire | `driver1@najah-rabat.ma` | `CShEfVwz` |
+| 👩‍🏫 Enseignant(e) | `teacher01@najah-rabat.ma` | `P6ZSCU2Y` |
+| 👪 Parent | `parent0001@najah-rabat.ma` | `fj4xqMh8` |
+| 🎒 Élève | `student0001@najah-rabat.ma` | `sjaxqmJm` |
+
+> ⚠️ Cet environnement est réservé à la démonstration — toutes les données (noms, numéros, dossiers) sont entièrement fictives et générées artificiellement.
+
+---
+
+<div align="center">
+
+**🔗 [kidsnotices.ma](https://kidsnotices.ma/)**
+
+</div>
