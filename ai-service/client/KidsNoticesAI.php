@@ -81,6 +81,22 @@ final class KidsNoticesAI
         ]);
     }
 
+    /**
+     * Google-style search. $pages = [['title' => ..., 'url' => ..., 'description' => ...], ...] the user can open.
+     * Returns ['answer' => ..., 'results' => [[title, url, snippet], ...], 'related' => [...]].
+     */
+    public function search(string $schoolName, string $role, string $query, array $context = [], array $pages = [], ?string $userName = null): array
+    {
+        return $this->post('/v1/search', [
+            'school_name' => $schoolName,
+            'role' => $role,
+            'user_name' => $userName,
+            'query' => $query,
+            'context' => $context,
+            'pages' => $pages,
+        ]);
+    }
+
     private function post(string $path, array $payload): array
     {
         $ch = curl_init($this->baseUrl . $path);

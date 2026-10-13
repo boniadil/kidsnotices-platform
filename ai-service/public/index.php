@@ -15,6 +15,7 @@ use KidsNotices\AI\Config;
 use KidsNotices\AI\Features\AdminInsights;
 use KidsNotices\AI\Features\MessageWriter;
 use KidsNotices\AI\Features\ParentAssistant;
+use KidsNotices\AI\Features\SmartSearch;
 use KidsNotices\AI\Features\TeacherAssistant;
 use KidsNotices\AI\HttpError;
 use KidsNotices\AI\RateLimiter;
@@ -32,6 +33,7 @@ $routes = [
     'POST /v1/teacher/report-comments' => [TeacherAssistant::class, 'reportComments'],
     'POST /v1/teacher/homework' => [TeacherAssistant::class, 'homework'],
     'POST /v1/admin/insights' => [AdminInsights::class, 'handle'],
+    'POST /v1/search' => [SmartSearch::class, 'handle'],
 ];
 
 function respond(int $status, array $payload): never
