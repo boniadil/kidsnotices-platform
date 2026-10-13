@@ -22,6 +22,7 @@ final class Dashboard
         }
         if ($hash === '' || $user !== 'admin' || !password_verify($pass, $hash)) {
             header('WWW-Authenticate: Basic realm="KidsNotices AI"');
+            header('X-Robots-Tag: noindex, nofollow');
             http_response_code(401);
             echo $hash === '' ? 'Dashboard disabled: set KN_AI_ADMIN_PASSWORD_HASH.' : 'Authentication required.';
             return;
@@ -41,6 +42,7 @@ final class Dashboard
 
         header('Content-Type: text/html; charset=utf-8');
         header('Cache-Control: no-store');
+        header('X-Robots-Tag: noindex, nofollow');
         ?>
 <!doctype html>
 <html lang="fr">

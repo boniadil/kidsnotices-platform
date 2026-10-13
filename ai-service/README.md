@@ -218,6 +218,35 @@ $u = $ai->usage('2026-10');   // استهلاك العميل
 
 ---
 
+## 🌐 الصفحة التعريفية (لجلب العملاء)
+
+صفحة عامة بثلاث لغات على نفس النطاق: **`/`** (العربية)، **`/fr`**، **`/en`** — تشرح الخدمة لمديري المدارس وأصحاب المنصات، بنصوص صادقة (بدون أرقام أو شهادات مختلقة).
+
+**ما تم لتحسين الظهور في محركات البحث (SEO):**
+- عنوان ووصف لكل لغة بالطول المناسب لنتائج Google (≤ 60 و≤ 160 حرفاً)، مع الكلمات التي يبحث بها الناس: «ذكاء اصطناعي للمدارس بالمغرب»، «IA pour écoles au Maroc»، «AI for schools in Morocco».
+- `canonical` و`hreflang` (ar / fr / en / x-default) حتى يعرض Google النسخة المناسبة لكل زائر، ورابط واحد لكل صفحة (`/fr/` ← تحويل 301 إلى `/fr`).
+- بيانات منظمة JSON-LD: `Organization` و`WebSite` و`WebPage` و`SoftwareApplication` و`FAQPage`.
+- صور مشاركة (Open Graph و Twitter) 1200×630 لكل لغة، وأيقونات (`favicon.svg`، 192، 512، apple-touch-icon).
+- `sitemap.xml` مع روابط اللغات، و`robots.txt` يسمح بالصفحات ويمنع `/v1/` و`/dashboard`؛ وكل ردود الـ API واللوحة تحمل `X-Robots-Tag: noindex`.
+- HTML دلالي (عنوان `h1` واحد، أقسام بعناوين، روابط تخطي)، CSS مدمج وبدون JavaScript ولا خطوط خارجية: تحميل سريع على الهاتف، ووضع ليلي.
+
+**تعديل النصوص:** عدّل `site/content/ar.php` و`fr.php` و`en.php` ثم أعد البناء:
+```bash
+php site/build.php                                   # النطاق الافتراضي https://ai.kidsnotices.ma
+KN_SITE_URL=https://www.example.ma php site/build.php   # إن نشرت الصفحة على نطاق آخر
+```
+البناء يكتب `site/dist/*.html` و`public/sitemap.xml` و`public/robots.txt` (كلها مرفوعة جاهزة، فلا حاجة للبناء على الخادم).
+
+**بعد النشر (خطوات يدوية مهمة):**
+1. **Google Search Console** (search.google.com/search-console): أضف `https://ai.kidsnotices.ma`، تحقّق من الملكية بسجل DNS، ثم «Sitemaps» ← أرسل `sitemap.xml`، و«URL Inspection» ← اطلب فهرسة `/` و`/fr` و`/en`.
+2. **Bing Webmaster Tools** (bing.com/webmasters): نفس الشيء — يمكن استيراد الموقع من Search Console.
+3. **روابط من مواقعك**: أضف رابطاً إلى `ai.kidsnotices.ma` من `kidsnotices.ma` (القائمة أو التذييل) ومن صفحات التواصل الاجتماعي — الروابط الداخلية من النطاق الرئيسي تسرّع الفهرسة.
+4. **Google Business Profile** لـ KidsNotices (إن لم يكن موجوداً) مع رابط الموقع.
+5. تحقّق من صور المشاركة بلصق الرابط في واتساب أو فيسبوك (أو أداة Sharing Debugger).
+6. على GitHub: أضف للمستودع **Topics** مثل `school-management` `morocco` `edtech` `artificial-intelligence` `arabic` `saas` (Settings ← About)، ورابط الموقع في خانة Website.
+
+---
+
 ## 🧪 الاختبارات (بدون كلفة)
 
 ```bash
@@ -245,6 +274,7 @@ ai-service/
 ├── bin/kn-admin.php            ← إدارة العملاء والمدارس والحصص
 ├── client/KidsNoticesAI.php    ← الملف الذي تنسخه إلى المنصة العميلة
 ├── platform/search/            ← صفحة البحث الذكي
+├── site/                       ← الصفحة التعريفية (النصوص بثلاث لغات، القالب، البناء)
 ├── examples/                   ← أمثلة الدمج
 ├── tests/                      ← الخادم المزيّف والاختبارات
 └── .env.example                ← الإعدادات

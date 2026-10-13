@@ -27,6 +27,11 @@ use KidsNotices\AI\Privacy\Pseudonymizer;
 use KidsNotices\AI\RequestContext;
 use KidsNotices\AI\Usage;
 
+// PHP built-in server: let it serve real files (robots.txt, sitemap.xml, images) itself.
+if (PHP_SAPI === 'cli-server' && is_file(__DIR__ . parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH)) && ($_SERVER['REQUEST_URI'] ?? '/') !== '/') {
+    return false;
+}
+
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 Config::loadEnvFile(dirname(__DIR__) . '/.env');
@@ -49,6 +54,7 @@ function respond(int $status, array $payload): never
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
+    header('X-Robots-Tag: noindex');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -56,6 +62,27 @@ function respond(int $status, array $payload): never
 try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $path = rtrim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/') ?: '/';
+
+    // Public landing page (built by site/build.php): / (Arabic), /fr, /en.
+    $pages = ['/' => 'ar', '/fr' => 'fr', '/en' => 'en'];
+    if (($method === 'GET' || $method === 'HEAD') && isset($pages[$path])) {
+        $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+        if ($rawPath !== $path && $path !== '/') {
+            header('Location: ' . $path, true, 301); // one URL per page: /fr/ → /fr
+            exit;
+        }
+        $file = dirname(__DIR__) . '/site/dist/' . $pages[$path] . '.html';
+        if (is_file($file)) {
+            header('Content-Type: text/html; charset=utf-8');
+            header('Content-Language: ' . $pages[$path]);
+            header('Cache-Control: public, max-age=3600');
+            header('X-Content-Type-Options: nosniff');
+            if ($method === 'GET') {
+                readfile($file);
+            }
+            exit;
+        }
+    }
 
     if ($method === 'GET' && $path === '/health') {
         respond(200, ['status' => 'ok']);
