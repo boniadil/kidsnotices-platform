@@ -50,7 +50,11 @@ $_SESSION['kn_search_last'] = $now;
 session_write_close(); // don't block the user's other requests while the AI answers
 
 try {
-    $ai = new KidsNoticesAI(KN_AI_URL, KN_AI_SECRET_VALUE, $user['school_id'], timeoutSeconds: 60);
+    $ai = (new KidsNoticesAI(KN_AI_URL, KN_AI_KEY_VALUE, $user['school_id'], timeoutSeconds: 60))->forUser($user['id']);
+    $people = kn_search_people($user);
+    if ($people !== []) {
+        $ai = $ai->withPeople($people);
+    }
     $result = $ai->search(
         $user['school_name'],
         $user['role'],

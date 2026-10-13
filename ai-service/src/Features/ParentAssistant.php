@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KidsNotices\AI\Features;
 
 use KidsNotices\AI\Claude;
+use KidsNotices\AI\RequestContext;
 use KidsNotices\AI\HttpError;
 use KidsNotices\AI\Input;
 
@@ -28,7 +29,7 @@ final class ParentAssistant
 {
     private const MAX_HISTORY = 20;
 
-    public static function handle(string $schoolId, array $body): array
+    public static function handle(RequestContext $ctx, array $body): array
     {
         $schoolName = Input::string($body, 'school_name', 200);
         $parentName = Input::optionalString($body, 'parent_name', 200);
@@ -71,7 +72,7 @@ PROMPT;
         $messages = $history;
         $messages[] = ['role' => 'user', 'content' => $question];
 
-        $answer = (new Claude($schoolId, 'parent_chat'))->text($system, $messages, effort: 'low', maxTokens: 4000, cache: true);
+        $answer = (new Claude($ctx))->text($system, $messages, effort: 'low', maxTokens: 4000, cache: true);
         return ['answer' => $answer];
     }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KidsNotices\AI\Features;
 
 use KidsNotices\AI\Claude;
+use KidsNotices\AI\RequestContext;
 use KidsNotices\AI\Input;
 
 /**
@@ -24,7 +25,7 @@ use KidsNotices\AI\Input;
  */
 final class AdminInsights
 {
-    public static function handle(string $schoolId, array $body): array
+    public static function handle(RequestContext $ctx, array $body): array
     {
         $schoolName = Input::string($body, 'school_name', 200);
         $period = Input::string($body, 'period', 100);
@@ -71,7 +72,7 @@ PROMPT;
             'additionalProperties' => false,
         ];
 
-        return (new Claude($schoolId, 'admin_insights'))->json(
+        return (new Claude($ctx))->json(
             $system,
             [['role' => 'user', 'content' => "<school_figures>\n{$data}\n</school_figures>"]],
             $schema,

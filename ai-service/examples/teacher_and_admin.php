@@ -3,14 +3,14 @@
 /*
  * EXAMPLE — calling the other AI features from the KidsNotices platform.
  * Run from the command line once the service is up:
- *   KN_AI_URL=https://ai.kidsnotices.ma KN_AI_SECRET=... php examples/teacher_and_admin.php
+ *   KN_AI_URL=https://ai.kidsnotices.ma KN_AI_KEY=kn_live_... php examples/teacher_and_admin.php
  */
 
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/client/KidsNoticesAI.php';
 
-$ai = new KidsNoticesAI(getenv('KN_AI_URL') ?: 'http://127.0.0.1:8080', (string) getenv('KN_AI_SECRET'), 'najah-rabat');
+$ai = new KidsNoticesAI(getenv('KN_AI_URL') ?: 'http://127.0.0.1:8080', (string) getenv('KN_AI_KEY'), 'najah-rabat');
 
 // 1) Announcement in Arabic + French from a few notes.
 $draft = $ai->draftMessage(

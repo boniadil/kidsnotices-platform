@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KidsNotices\AI\Features;
 
 use KidsNotices\AI\Claude;
+use KidsNotices\AI\RequestContext;
 use KidsNotices\AI\HttpError;
 use KidsNotices\AI\Input;
 
@@ -40,7 +41,7 @@ final class SmartSearch
         'student' => 'a student',
     ];
 
-    public static function handle(string $schoolId, array $body): array
+    public static function handle(RequestContext $ctx, array $body): array
     {
         $schoolName = Input::string($body, 'school_name', 200);
         $role = Input::oneOf($body, 'role', self::ROLES);
@@ -108,7 +109,7 @@ PROMPT;
             'additionalProperties' => false,
         ];
 
-        $result = (new Claude($schoolId, 'search'))->json(
+        $result = (new Claude($ctx))->json(
             $system,
             [['role' => 'user', 'content' => "<query>{$query}</query>"]],
             $schema,

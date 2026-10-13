@@ -230,7 +230,9 @@ $e = fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
       related: 'عمليات بحث ذات صلة', noResults: 'لا توجد صفحات مطابقة.',
       clear: 'مسح', mic: 'البحث الصوتي', footer: 'البحث مدعوم بالذكاء الاصطناعي',
       errors: {
-        daily_limit_reached: 'تم بلوغ الحد اليومي للبحث الذكي في مؤسستك. حاول غداً.',
+        feature_limit_reached: 'تم بلوغ الحد الشهري للبحث الذكي في مؤسستك.',
+        user_daily_limit_reached: 'بلغت الحد اليومي للبحث الذكي. حاول غداً.',
+        client_quota_exceeded: 'البحث الذكي غير متاح مؤقتاً.',
         too_fast: 'مهلاً، انتظر ثانيتين بين كل بحث.', not_logged_in: 'انتهت الجلسة، المرجو تسجيل الدخول من جديد.',
         ai_busy: 'الخدمة مشغولة حالياً، حاول بعد لحظات.', ai_refused: 'لا يمكن الإجابة على هذا البحث، جرّب صياغة أخرى.',
         default: 'تعذّر البحث حالياً. حاول من جديد.'
@@ -245,7 +247,9 @@ $e = fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
       related: 'Recherches associées', noResults: 'Aucune page correspondante.',
       clear: 'Effacer', mic: 'Recherche vocale', footer: "Recherche propulsée par l'IA",
       errors: {
-        daily_limit_reached: 'La limite quotidienne de recherche de votre établissement est atteinte. Réessayez demain.',
+        feature_limit_reached: 'La limite mensuelle de recherche de votre établissement est atteinte.',
+        user_daily_limit_reached: 'Vous avez atteint votre limite quotidienne de recherche. Réessayez demain.',
+        client_quota_exceeded: 'La recherche intelligente est temporairement indisponible.',
         too_fast: 'Patientez deux secondes entre deux recherches.', not_logged_in: 'Session expirée, reconnectez-vous.',
         ai_busy: 'Service occupé, réessayez dans un instant.', ai_refused: 'Impossible de répondre à cette recherche, reformulez-la.',
         default: 'La recherche est indisponible pour le moment. Réessayez.'

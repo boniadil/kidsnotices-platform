@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KidsNotices\AI\Features;
 
 use KidsNotices\AI\Claude;
+use KidsNotices\AI\RequestContext;
 use KidsNotices\AI\Input;
 
 /**
@@ -29,7 +30,7 @@ use KidsNotices\AI\Input;
  */
 final class TeacherAssistant
 {
-    public static function reportComments(string $schoolId, array $body): array
+    public static function reportComments(RequestContext $ctx, array $body): array
     {
         $subject = Input::string($body, 'subject', 100);
         $level = Input::string($body, 'level', 100);
@@ -82,7 +83,7 @@ PROMPT;
             'additionalProperties' => false,
         ];
 
-        return (new Claude($schoolId, 'report_comments'))->json(
+        return (new Claude($ctx))->json(
             $system,
             [['role' => 'user', 'content' => "<students>\n{$data}\n</students>"]],
             $schema,
@@ -90,7 +91,7 @@ PROMPT;
         );
     }
 
-    public static function homework(string $schoolId, array $body): array
+    public static function homework(RequestContext $ctx, array $body): array
     {
         $subject = Input::string($body, 'subject', 100);
         $level = Input::string($body, 'level', 100);
@@ -129,7 +130,7 @@ PROMPT;
             'additionalProperties' => false,
         ];
 
-        return (new Claude($schoolId, 'homework'))->json(
+        return (new Claude($ctx))->json(
             $system,
             [['role' => 'user', 'content' => "<lesson title=\"" . htmlspecialchars($lessonTitle) . "\">\n{$lessonSummary}\n</lesson>"]],
             $schema,

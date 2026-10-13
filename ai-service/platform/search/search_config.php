@@ -15,9 +15,9 @@ declare(strict_types=1);
 // The client: copy client/KidsNoticesAI.php next to this file (falls back to the repo copy).
 require_once is_file(__DIR__ . '/KidsNoticesAI.php') ? __DIR__ . '/KidsNoticesAI.php' : dirname(__DIR__, 2) . '/client/KidsNoticesAI.php';
 
-// Address of the AI service and the shared secret (same value as KN_AI_SECRET in ai-service/.env).
+// Address of the AI service and this platform's API key (created with: php bin/kn-admin.php client:create).
 define('KN_AI_URL', getenv('KN_AI_URL') ?: 'https://ai.kidsnotices.ma');
-define('KN_AI_SECRET_VALUE', (string) getenv('KN_AI_SECRET'));
+define('KN_AI_KEY_VALUE', (string) getenv('KN_AI_KEY'));
 
 // Demo mode: a fake logged-in parent with sample data, to try the page before wiring your database.
 // Set KN_SEARCH_DEMO=1 on a test server only — NEVER in production.
@@ -125,5 +125,21 @@ function kn_search_context(array $user): array
     // $stmt = $pdo->prepare('SELECT id, first_name, class_name FROM students WHERE parent_id = ? AND school_id = ?');
     // $stmt->execute([$user['id'], $user['school_id']]);
     // ... same queries as ai-service/examples/parent_chat_endpoint.php
+    return [];
+}
+
+/**
+ * 4) People whose names may appear in the context or the query (pseudonymized before reaching the AI,
+ *    real names put back in the answer). Return [] to disable pseudonymization.
+ * TODO: for a parent: the parent and their children; for a teacher: their students; etc.
+ */
+function kn_search_people(array $user): array
+{
+    if (KN_SEARCH_DEMO) {
+        return [
+            ['id' => 'demo-parent', 'name' => 'أحمد العلمي', 'role' => 'parent'],
+            ['id' => 'demo-child', 'name' => 'ياسين العلمي', 'role' => 'student'],
+        ];
+    }
     return [];
 }

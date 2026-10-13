@@ -7,22 +7,58 @@ declare(strict_types=1);
  *
  * Usage:
  *   require_once __DIR__ . '/KidsNoticesAI.php';
- *   $ai = new KidsNoticesAI('https://ai.kidsnotices.ma', getenv('KN_AI_SECRET'), $schoolId);
- *   $result = $ai->parentChat('مدرسة النجاح', $context, $history, $question);
- *   echo $result['answer'];
+ *   $ai = new KidsNoticesAI('https://ai.kidsnotices.ma', getenv('KN_AI_KEY'), $schoolId);
+ *
+ *   $result = $ai
+ *       ->forUser($parentId)                  // per-user daily limit (the id is hashed before sending)
+ *       ->withPeople([                        // optional: names replaced by codes before reaching the AI
+ *           ['id' => 12, 'name' => 'ياسين العلمي', 'role' => 'student'],
+ *           ['id' => 4,  'name' => 'أحمد العلمي',  'role' => 'parent'],
+ *       ])
+ *       ->parentChat('مدرسة النجاح', $context, $history, $question);
+ *   echo $result['answer'];                  // real names are already restored
  *
  * Every method returns the decoded JSON answer, or throws KidsNoticesAIException
- * whose ->errorCode can be shown/translated in the UI (e.g. "daily_limit_reached").
+ * whose ->errorCode can be shown/translated in the UI (e.g. "feature_limit_reached").
  */
 final class KidsNoticesAI
 {
+    private ?string $endUser = null;
+    private ?array $people = null;
+
     public function __construct(
         private string $baseUrl,
-        private string $secret,
+        private string $apiKey,
         private string $schoolId,
         private int $timeoutSeconds = 120,
     ) {
         $this->baseUrl = rtrim($baseUrl, '/');
+    }
+
+    /** Copy of the client acting for an end user (parent, teacher…): enables the per-user daily limit. */
+    public function forUser(string|int $userId): self
+    {
+        $copy = clone $this;
+        $copy->endUser = hash('sha256', $this->schoolId . ':' . $userId);
+        return $copy;
+    }
+
+    /**
+     * Copy of the client that pseudonymizes requests: the service replaces these people's names
+     * with codes, removes phones/emails/Massar codes/birth dates, and restores the names in the answer.
+     * $people = [['id' => ..., 'name' => ..., 'role' => 'student'|'parent'|'teacher'|'staff'], ...]
+     */
+    public function withPeople(array $people): self
+    {
+        $copy = clone $this;
+        $copy->people = $people;
+        return $copy;
+    }
+
+    /** This client's usage for a month (YYYY-MM, default current). */
+    public function usage(?string $month = null): array
+    {
+        return $this->request('GET', '/v1/usage' . ($month ? '?month=' . rawurlencode($month) : ''));
     }
 
     /** Parent assistant. $context = only the data this parent may see. */
@@ -99,18 +135,34 @@ final class KidsNoticesAI
 
     private function post(string $path, array $payload): array
     {
+        $payload = array_filter($payload, fn ($v) => $v !== null);
+        if ($this->people !== null) {
+            $payload['pseudonymize'] = true;
+            $payload['people'] = $this->people;
+        }
+        return $this->request('POST', $path, $payload);
+    }
+
+    private function request(string $method, string $path, ?array $payload = null): array
+    {
+        $headers = [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $this->apiKey,
+            'X-School-Id: ' . $this->schoolId,
+        ];
+        if ($this->endUser !== null) {
+            $headers[] = 'X-End-User: ' . $this->endUser;
+        }
         $ch = curl_init($this->baseUrl . $path);
         curl_setopt_array($ch, [
-            CURLOPT_POST => true,
+            CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeoutSeconds,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $this->secret,
-                'X-School-Id: ' . $this->schoolId,
-            ],
-            CURLOPT_POSTFIELDS => json_encode(array_filter($payload, fn ($v) => $v !== null), JSON_UNESCAPED_UNICODE),
+            CURLOPT_HTTPHEADER => $headers,
         ]);
+        if ($payload !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        }
         $raw = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);

@@ -5,7 +5,7 @@
  *
  * An AJAX endpoint of the parent space: the PWA / Android app calls THIS file
  * (with the parent's normal session), and this file calls the AI service server-to-server.
- * The secret KN_AI_SECRET therefore never leaves your server.
+ * The API key KN_AI_KEY therefore never leaves your server.
  *
  * Table and column names below are placeholders: replace them with yours.
  */
@@ -34,11 +34,12 @@ if ($question === '') {
 
 // 2) Build the context with ONLY this parent's children, from the current school (tenant).
 //    Keep it small: recent data only, first names, no national ids / phone numbers.
-$children = $pdo->prepare('SELECT id, first_name, class_name FROM students WHERE parent_id = ? AND school_id = ?');
+$children = $pdo->prepare('SELECT id, first_name, last_name, class_name FROM students WHERE parent_id = ? AND school_id = ?');
 $children->execute([$parentId, $schoolId]);
+$childRows = $children->fetchAll(PDO::FETCH_ASSOC);
 
 $context = ['children' => []];
-foreach ($children->fetchAll(PDO::FETCH_ASSOC) as $child) {
+foreach ($childRows as $child) {
     $absences = $pdo->prepare('SELECT date, session, justified FROM absences WHERE student_id = ? AND date >= CURDATE() - INTERVAL 30 DAY');
     $absences->execute([$child['id']]);
 
@@ -66,7 +67,15 @@ foreach ($children->fetchAll(PDO::FETCH_ASSOC) as $child) {
 $history = $_SESSION['ai_history'] ?? [];
 
 try {
-    $ai = new KidsNoticesAI('https://ai.kidsnotices.ma', getenv('KN_AI_SECRET'), (string) $schoolId);
+    // Names of the parent and children are replaced by codes before reaching the AI, and restored in the answer.
+    $people = [['id' => $parentId, 'name' => $_SESSION['parent_full_name'] ?? '', 'role' => 'parent']];
+    foreach ($childRows as $child) {
+        $people[] = ['id' => $child['id'], 'name' => $child['first_name'] . ' ' . $child['last_name'], 'role' => 'student'];
+    }
+
+    $ai = (new KidsNoticesAI('https://ai.kidsnotices.ma', getenv('KN_AI_KEY'), (string) $schoolId))
+        ->forUser($parentId)
+        ->withPeople(array_values(array_filter($people, fn ($p) => trim($p['name']) !== '')));
     $result = $ai->parentChat($_SESSION['school_name'], $context, $history, $question, $_SESSION['parent_name'] ?? null);
 
     $history[] = ['role' => 'user', 'content' => $question];
@@ -76,7 +85,8 @@ try {
     echo json_encode(['answer' => $result['answer']], JSON_UNESCAPED_UNICODE);
 } catch (KidsNoticesAIException $e) {
     $messages = [
-        'daily_limit_reached' => 'تم بلوغ الحد اليومي للمساعد الذكي. حاول غداً.',
+        'user_daily_limit_reached' => 'بلغت الحد اليومي للمساعد الذكي. حاول غداً.',
+        'feature_limit_reached' => 'تم بلوغ الحد الشهري للمساعد الذكي في المؤسسة.',
         'ai_busy' => 'المساعد مشغول حالياً، حاول بعد لحظات.',
         'ai_refused' => 'لم يتمكن المساعد من الإجابة على هذا السؤال. المرجو إعادة صياغته.',
     ];

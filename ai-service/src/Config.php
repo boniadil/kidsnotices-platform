@@ -9,6 +9,19 @@ namespace KidsNotices\AI;
  */
 final class Config
 {
+    /** Feature keys used for per-feature models, limits and usage reports. */
+    public const FEATURES = ['parent_chat', 'search', 'draft', 'translate', 'teacher', 'insights'];
+
+    /** Default monthly request limit per school, per feature (0 = unlimited). */
+    private const DEFAULT_MONTHLY_LIMITS = [
+        'parent_chat' => 3000,
+        'search' => 3000,
+        'draft' => 500,
+        'translate' => 1000,
+        'teacher' => 1000,
+        'insights' => 100,
+    ];
+
     public static function loadEnvFile(string $path): void
     {
         if (!is_readable($path)) {
@@ -34,23 +47,23 @@ final class Config
         return ($value === false || $value === '') ? $default : $value;
     }
 
-    public static function model(): string
+    /** Model for a feature: KN_AI_MODEL_<FEATURE>, else KN_AI_MODEL, else Claude Opus 5.5. */
+    public static function modelFor(string $feature): string
     {
-        return self::get('KN_AI_MODEL', 'claude-opus-5-5');
+        return self::get('KN_AI_MODEL_' . strtoupper($feature))
+            ?? self::get('KN_AI_MODEL', 'claude-opus-5-5');
     }
 
-    public static function secret(): string
+    /** Monthly request limit per school for a feature: KN_AI_MONTHLY_LIMIT_<FEATURE> (0 = unlimited). */
+    public static function monthlyLimit(string $feature): int
     {
-        $secret = self::get('KN_AI_SECRET', '');
-        if ($secret === '' || $secret === 'change-me') {
-            throw new HttpError(500, 'server_misconfigured', 'KN_AI_SECRET is not set.');
-        }
-        return $secret;
+        return (int) self::get('KN_AI_MONTHLY_LIMIT_' . strtoupper($feature), (string) (self::DEFAULT_MONTHLY_LIMITS[$feature] ?? 0));
     }
 
-    public static function dailyLimit(): int
+    /** Daily request limit per end user (X-End-User header), all features together (0 = unlimited). */
+    public static function dailyLimitPerUser(): int
     {
-        return (int) self::get('KN_AI_DAILY_LIMIT_PER_SCHOOL', '500');
+        return (int) self::get('KN_AI_DAILY_LIMIT_PER_USER', '30');
     }
 
     public static function storageDir(): string
