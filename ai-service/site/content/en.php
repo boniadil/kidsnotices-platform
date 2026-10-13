@@ -90,8 +90,15 @@ return [
     ],
     'cta' => [
         'title' => 'Instant answers for parents, more time for your team',
-        'text' => 'Explore KidsNotices with a complete demo school, then switch on the AI assistant for your school.',
+        'text' => 'Explore KidsNotices with a complete demo school, or message us on WhatsApp to switch on the AI assistant for your school.',
         'button' => 'Try KidsNotices',
+    ],
+    'contact' => [
+        'whatsapp' => 'Message us on WhatsApp',
+        'call' => 'Call us',
+        'phone_label' => 'Phone & WhatsApp',
+        'message' => "Hello, I'd like information about KidsNotices AI for my school.",
+        'float' => 'Message us on WhatsApp',
     ],
     'footer' => [
         'tagline' => 'SaaS platform for managing schools in Morocco.',

@@ -6,6 +6,8 @@
  * @var array  $all      contents of all languages, keyed by language code
  * @var string $base     public base URL, without trailing slash
  * @var string $mainSite URL of the main KidsNotices website
+ * @var string $phone    phone / WhatsApp number, international format without spaces
+ * @var string $phoneDisplay the same number formatted for display
  */
 
 $e = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
@@ -13,6 +15,8 @@ $url = fn (array $lang) => $base . $lang['path'];
 $canonical = $url($c);
 $ogImage = $base . '/og-' . $c['lang'] . '.png';
 $langNames = ['ar' => 'العربية', 'fr' => 'Français', 'en' => 'English'];
+$whatsapp = 'https://wa.me/' . ltrim($phone, '+') . '?text=' . rawurlencode($c['contact']['message']);
+$tel = 'tel:' . $phone;
 
 $icons = [
     'clock' => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -29,7 +33,9 @@ $icons = [
     'layers' => '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
     'table' => '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
     'check' => '<path d="m5 12 5 5 9-10"/>',
+    'call' => '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
 ];
+$waIcon = '<svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .1-1.3c0-.1-.2-.2-.5-.3z"/></svg>';
 $icon = fn (string $name) => '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' . $icons[$name] . '</svg>';
 
 $jsonLd = [
@@ -42,6 +48,14 @@ $jsonLd = [
             'url' => $mainSite,
             'logo' => $base . '/icon-512.png',
             'areaServed' => ['@type' => 'Country', 'name' => 'Morocco'],
+            'telephone' => $phone,
+            'contactPoint' => [
+                '@type' => 'ContactPoint',
+                'telephone' => $phone,
+                'contactType' => 'sales',
+                'areaServed' => 'MA',
+                'availableLanguage' => ['Arabic', 'French', 'English'],
+            ],
         ],
         [
             '@type' => 'WebSite',
@@ -202,6 +216,14 @@ $jsonLd = [
   .final h2 { color: #fff; } .final p { opacity: .9; margin: 0 auto 26px; max-width: 620px; }
   .final .btn { background: #fff; color: #1a2b5c; }
 
+  .btn.wa { background: #1f9d55; color: #fff; }
+  .btn.wa:hover { filter: brightness(1.08); }
+  .wa-ico { width: 20px; height: 20px; fill: currentColor; flex: none; }
+  .num { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+  .float-wa { position: fixed; bottom: 18px; inset-inline-end: 18px; z-index: 6; width: 56px; height: 56px; border-radius: 50%; background: #1f9d55; color: #fff; display: grid; place-items: center; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .float-wa .wa-ico { width: 30px; height: 30px; }
+  .final .actions { justify-content: center; }
+  .final .btn.ghost-light { background: transparent; color: #fff; border-color: rgba(255,255,255,.6); }
   footer { border-top: 1px solid var(--border); padding: 32px 0 40px; color: var(--muted); font-size: 14px; }
   .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
   .foot p { margin: 4px 0; }
@@ -250,6 +272,7 @@ $jsonLd = [
         <p class="lead"><?= $e($c['hero']['lead']) ?></p>
         <div class="actions">
           <a class="btn primary" href="<?= $e($mainSite) ?>"><?= $e($c['hero']['primary']) ?></a>
+          <a class="btn wa" href="<?= $e($whatsapp) ?>" rel="noopener" target="_blank"><?= $waIcon ?><?= $e($c['contact']['whatsapp']) ?></a>
           <a class="btn ghost" href="#features"><?= $e($c['hero']['secondary']) ?></a>
         </div>
         <p class="note"><?= $e($c['hero']['note']) ?></p>
@@ -353,7 +376,11 @@ $jsonLd = [
       <div class="final">
         <h2 id="cta-title"><?= $e($c['cta']['title']) ?></h2>
         <p><?= $e($c['cta']['text']) ?></p>
-        <a class="btn" href="<?= $e($mainSite) ?>"><?= $e($c['cta']['button']) ?></a>
+        <div class="actions">
+          <a class="btn" href="<?= $e($mainSite) ?>"><?= $e($c['cta']['button']) ?></a>
+          <a class="btn wa" href="<?= $e($whatsapp) ?>" rel="noopener" target="_blank"><?= $waIcon ?><?= $e($c['contact']['whatsapp']) ?></a>
+          <a class="btn ghost-light" href="<?= $e($tel) ?>"><?= $icon('call') ?><span class="num"><?= $e($phoneDisplay) ?></span></a>
+        </div>
       </div>
     </div>
   </section>
@@ -367,6 +394,7 @@ $jsonLd = [
     </div>
     <div>
       <p><a href="<?= $e($mainSite) ?>"><?= $e($c['footer']['site']) ?>: kidsnotices.ma</a></p>
+      <p><?= $e($c['contact']['phone_label']) ?>: <a class="num" href="<?= $e($tel) ?>"><?= $e($phoneDisplay) ?></a> · <a href="<?= $e($whatsapp) ?>" rel="noopener" target="_blank">WhatsApp</a></p>
       <p class="langs" style="margin-top:8px">
         <?php foreach ($all as $lang): ?>
         <a href="<?= $e($lang['path']) ?>" hreflang="<?= $e($lang['lang']) ?>" lang="<?= $e($lang['lang']) ?>"><?= $e($langNames[$lang['lang']]) ?></a>
@@ -375,5 +403,6 @@ $jsonLd = [
     </div>
   </div>
 </footer>
+<a class="float-wa" href="<?= $e($whatsapp) ?>" rel="noopener" target="_blank" aria-label="<?= $e($c['contact']['float']) ?>" title="<?= $e($c['contact']['float']) ?>"><?= $waIcon ?></a>
 </body>
 </html>

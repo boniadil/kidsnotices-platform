@@ -90,8 +90,15 @@ return [
     ],
     'cta' => [
         'title' => 'Des réponses immédiates pour les parents, plus de temps pour votre équipe',
-        'text' => "Découvrez KidsNotices avec une école de démonstration complète, puis activez l'assistant intelligent dans votre établissement.",
+        'text' => "Découvrez KidsNotices avec une école de démonstration complète, ou écrivez-nous sur WhatsApp pour activer l'assistant intelligent dans votre établissement.",
         'button' => 'Essayer KidsNotices',
+    ],
+    'contact' => [
+        'whatsapp' => 'Écrire sur WhatsApp',
+        'call' => 'Nous appeler',
+        'phone_label' => 'Téléphone et WhatsApp',
+        'message' => "Bonjour, je souhaite des informations sur KidsNotices AI pour mon école.",
+        'float' => 'Écrivez-nous sur WhatsApp',
     ],
     'footer' => [
         'tagline' => 'Plateforme SaaS de gestion des établissements scolaires au Maroc.',

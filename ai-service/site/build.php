@@ -14,6 +14,8 @@ declare(strict_types=1);
 
 $base = rtrim(getenv('KN_SITE_URL') ?: 'https://ai.kidsnotices.ma', '/');
 $mainSite = 'https://kidsnotices.ma/';
+$phone = '+212661770876';            // phone and WhatsApp (international format, no spaces)
+$phoneDisplay = '+212 6 61 77 08 76';
 $root = dirname(__DIR__);
 
 $all = [];

@@ -93,6 +93,8 @@
 
 👉 **[ai.kidsnotices.ma](https://ai.kidsnotices.ma/)** — والتفاصيل التقنية في [`ai-service/`](ai-service/).
 
+📞 للتواصل: **+212 6 61 77 08 76** (هاتف و[واتساب](https://wa.me/212661770876))
+
 ### 🧪 مدرسة تجريبية — جرّب المنصة الآن
 
 يمكنك تجربة كل ميزات المنصة مباشرة عبر مدرسة نموذجية كاملة (بيانات وهمية بالكامل — أسماء وأرقام غير حقيقية، لا علاقة لها بأي مؤسسة أو شخص فعلي):
@@ -190,6 +192,8 @@ Un assistant d'intelligence artificielle qui comprend **l'arabe, la darija et le
 
 👉 **[ai.kidsnotices.ma/fr](https://ai.kidsnotices.ma/fr)** — détails techniques dans [`ai-service/`](ai-service/).
 
+📞 Contact : **+212 6 61 77 08 76** (téléphone et [WhatsApp](https://wa.me/212661770876))
+
 ### 🧪 École de démonstration — essayez la plateforme dès maintenant
 
 Vous pouvez tester toutes les fonctionnalités de la plateforme via une école modèle complète (données entièrement fictives — noms et numéros non réels, sans lien avec un établissement ou une personne existante) :
@@ -232,6 +236,8 @@ An AI assistant that understands **Arabic, Moroccan Darija and French**, built i
 
 👉 **[ai.kidsnotices.ma/en](https://ai.kidsnotices.ma/en)** — technical details in [`ai-service/`](ai-service/).
 
+📞 Contact: **+212 6 61 77 08 76** (phone and [WhatsApp](https://wa.me/212661770876))
+
 ### 🧪 Demo school — try the platform now
 
 Try every feature with a complete demo school at **https://kidsnotices.ma/** using the demo accounts listed in the sections above (all data is entirely fictitious and artificially generated).
@@ -241,5 +247,7 @@ Try every feature with a complete demo school at **https://kidsnotices.ma/** usi
 <div align="center">
 
 **🔗 [kidsnotices.ma](https://kidsnotices.ma/)** · **🤖 [ai.kidsnotices.ma](https://ai.kidsnotices.ma/)**
+
+📞 **+212 6 61 77 08 76** · 💬 **[WhatsApp](https://wa.me/212661770876)**
 
 </div>
