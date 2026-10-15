@@ -2,7 +2,8 @@
 
 /*
  * End-to-end tests against the fake Claude server (tests/mock_claude.php) — no API key, no cost.
- *   php tests/run.php
+ *   php tests/run.php            all tasks on Claude
+ *   php tests/run.php --local    all tasks on a local Ollama model (tests/mock_ollama.php), slides on Claude
  * Ingests the four fictitious sample reports (2 Arabic, 2 French), then checks search, statistics,
  * the question assistant, report writing, Word export, error handling and the web pages.
  */
@@ -38,6 +39,11 @@ $env = [
     'MOCK_LOG_DIR' => $tmp,
 ];
 
+$local = in_array('--local', $argv, true);
+if ($local) {
+    $env += ['RAI_PROVIDER' => 'local', 'RAI_PROVIDER_SLIDES' => 'anthropic', 'RAI_LOCAL_MODEL' => 'qwen3.5:4b', 'RAI_LOCAL_MODEL_EXTRACT' => 'qwen2.5:3b', 'RAI_LOCAL_KEY' => 'test-key'];
+}
+
 $procs = [];
 $freePort = function (): int {
     $s = stream_socket_server('tcp://127.0.0.1:0');
@@ -54,6 +60,11 @@ $serve = function (string $docroot, string $router, int $port, array $extraEnv =
 $mockPort = $freePort();
 $serve("$root/tests", "$root/tests/mock_claude.php", $mockPort);
 $env['ANTHROPIC_BASE_URL'] = "http://127.0.0.1:$mockPort";
+if ($local) {
+    $ollamaPort = $freePort();
+    $serve("$root/tests", "$root/tests/mock_ollama.php", $ollamaPort);
+    $env['RAI_LOCAL_URL'] = "http://127.0.0.1:$ollamaPort";
+}
 foreach ($env as $k => $v) {
     putenv("$k=$v");
 }
@@ -70,6 +81,16 @@ function requests(): array
     global $tmp;
     return array_map(fn ($l) => json_decode($l, true), file("$tmp/requests.jsonl", FILE_IGNORE_NEW_LINES) ?: []);
 }
+/** Structured-output schema of a logged request (Claude or Ollama). */
+function schemaOf(array $q): ?array
+{
+    return $q['body']['output_config']['format']['schema'] ?? $q['body']['format'] ?? null;
+}
+function systemOf(array $q): string
+{
+    return (string) ($q['body']['system'] ?? (($q['body']['messages'][0]['role'] ?? '') === 'system' ? $q['body']['messages'][0]['content'] : ''));
+}
+echo $local ? "Mode: local model (Ollama), slides on Claude\n" : "Mode: Claude\n";
 
 try {
     echo "Text normalization\n";
@@ -121,7 +142,7 @@ try {
     $p3 = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.year = 2021 AND p.page_no = 3")->fetchColumn();
     check('Arabic lam-alef repaired in stored text', str_contains($p1, 'خلال سنة') && str_contains($p1, 'الاستثمار') && !str_contains($p1, 'خالل'), mb_substr($p1, 0, 160));
     check('a repair that changed other text was rejected', !str_contains($p3, 'مزورة'), mb_substr($p3, 0, 120));
-    check('French reports are not sent for repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === 2);
+    check('French reports are not sent for repair', count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages']))) === 2);
 
     echo "Search\n";
     $hits = Search::passages('مخالفات التعمير');
@@ -136,23 +157,34 @@ try {
     $before = count(requests());
     $r = Assistant::ask('كم عدد رخص البناء المسلمة كل سنة؟');
     $calls = array_slice(requests(), $before);
-    check('tool loop ran (find → series → search → answer)', count($calls) === 4, count($calls));
+    check('tool loop ran (list → find → series → search → answer)', count($calls) === 5, count($calls));
     check('thinking blocks and tool results passed back correctly', true); // the mock rejects the request otherwise
     check('answer cites sources', str_contains($r['answer'], '[R') && count($r['sources']) === 4, $r['sources']);
     check('series returned for the chart', ($r['series'][0]['points'][3]['value'] ?? null) === 1468.0);
-    check('fallbacks + beta header on Opus', ($calls[0]['body']['fallbacks'] ?? null) === 'default' && str_contains($calls[0]['headers']['anthropic-beta'] ?? '', 'server-side-fallback'));
-    check('tools stream their input', ($calls[0]['body']['tools'][0]['eager_input_streaming'] ?? null) === true);
+    if ($local) {
+        check('local model: tool turns sent in Ollama format', array_unique(array_column($calls, 'api')) === ['ollama'] && ($calls[4]['body']['messages'][4]['tool_calls'][0]['function']['name'] ?? '') === 'find_indicators' && ($calls[4]['body']['messages'][5]['role'] ?? '') === 'tool');
+        check('local model: gateway key, streaming and context size sent', ($calls[0]['headers']['authorization'] ?? '') === 'Bearer test-key' && $calls[0]['body']['stream'] === true && $calls[0]['body']['options']['num_ctx'] === 16384 && !array_key_exists('think', $calls[0]['body']));
+    } else {
+        check('fallbacks + beta header on Opus', ($calls[0]['body']['fallbacks'] ?? null) === 'default' && str_contains($calls[0]['headers']['anthropic-beta'] ?? '', 'server-side-fallback'));
+        check('tools stream their input', ($calls[0]['body']['tools'][0]['eager_input_streaming'] ?? null) === true);
+    }
     $html = Markdown::toHtml($r['answer'], fn ($id, $p) => "$id/$p");
     check('answer rendered with source links', str_contains($html, '<a class="cite" href="/source?report=') && str_contains($html, '<table>'));
-    $extract = array_values(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['facts'])));
-    check('no fallbacks sent to Haiku (extraction)', $extract && !array_key_exists('fallbacks', $extract[0]['body']) && empty($extract[0]['headers']['anthropic-beta']));
+    $extract = array_values(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['facts'])));
+    if ($local) {
+        check('local model per task (extraction on qwen2.5:3b)', $extract && $extract[0]['body']['model'] === 'qwen2.5:3b' && ($calls[0]['body']['model'] ?? '') === 'qwen3.5:4b');
+    } else {
+        check('no fallbacks sent to Haiku (extraction)', $extract && !array_key_exists('fallbacks', $extract[0]['body']) && empty($extract[0]['headers']['anthropic-beta']));
+    }
     $r2 = Assistant::ask('Et en 2024 ?', [['role' => 'assistant', 'content' => 'orphan'], ['role' => 'user', 'content' => 'q1'], ['role' => 'user', 'content' => 'q1 again'], ['role' => 'assistant', 'content' => 'a1'], ['role' => 'user', 'content' => 'dangling']]);
     check('messy history repaired into alternating turns', $r2['answer'] !== '');
-    try {
-        Assistant::ask('__REFUSE__');
-        check('refusal reported', false);
-    } catch (UserError $e) {
-        check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
+    if (!$local) {
+        try {
+            Assistant::ask('__REFUSE__');
+            check('refusal reported', false);
+        } catch (UserError $e) {
+            check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
+        }
     }
 
     echo "Report writing\n";
@@ -160,7 +192,8 @@ try {
     Worker::runOnce();
     $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
     check('annual report written', $job['status'] === 'ready' && str_contains($job['markdown'], '# تقرير') && str_contains($job['markdown'], '[new data]'), [$job['status'], $job['error']]);
-    $sys = array_values(array_filter(requests(), fn ($q) => str_contains((string) ($q['body']['system'] ?? ''), 'You write official reports')))[0]['body']['system'] ?? '';
+    $sys = array_values(array_filter(requests(), fn ($q) => str_contains(systemOf($q), 'You write official reports')))[0] ?? [];
+    $sys = $sys ? systemOf($sys) : '';
     check('writer receives the structure of the latest report', str_contains($sys, 'دراسة طلبات رخص البناء') && str_contains($sys, 'مواكبة الاستثمار'), mb_substr($sys, 0, 300));
     $docx = Docx::build($job['markdown'], 'ar');
     $zipFile = "$tmp/test.docx";
@@ -234,7 +267,7 @@ try {
         exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
         Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
     }
-    $repairsBefore = count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages'])));
+    $repairsBefore = count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages'])));
     while (Worker::runOnce()) {
     }
     $office = Database::pdo()->query("SELECT year, kind, status, pages, error FROM reports WHERE kind <> 'pdf' ORDER BY year")->fetchAll();
@@ -251,7 +284,7 @@ try {
     check('figures from Office files join the same indicator', ($years[2018] ?? null) === 990.0 && ($years[2019] ?? null) === 1100.0 && ($years[2020] ?? null) === 1180.0 && (!$hasSoffice || ($years[2017] ?? null) === 870.0), $years);
     $src2020 = array_values(array_filter($s['points'], fn ($p) => $p['year'] === 2020))[0]['source'] ?? [];
     check('sources name the sheet / slide', ($src2020['label'] ?? '') === 'ورقة «Permis»' && str_contains(Search::refLabel((int) explode(':', substr($src2020['ref'], 1))[0], 1), 'ورقة'), $src2020);
-    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === $repairsBefore);
+    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages']))) === $repairsBefore);
     $copy = "$tmp/bad.xlsx";
     file_put_contents($copy, '%PDF-1.4 not a workbook');
     try {
@@ -294,6 +327,38 @@ try {
     $calls = count(requests());
     Slides::build(Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch());
     check('slide plan reused on the next download (no new AI call)', count(requests()) === $calls);
+
+    if ($local) {
+        echo "Local model\n";
+        $slideReq = array_values(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['slides'])));
+        check('mixed setup: slides planned by Claude, the rest by the local model', count($slideReq) === 1 && !isset($slideReq[0]['api']) && str_starts_with($slideReq[0]['body']['model'], 'claude-'));
+        $use = Database::pdo()->query("SELECT model, COUNT(*) AS n, SUM(cost_usd) AS cost, SUM(input_tokens) AS tin FROM usage_log WHERE model LIKE 'local:%' GROUP BY model ORDER BY model")->fetchAll();
+        check('local calls logged per model, at no cost', array_column($use, 'model') === ['local:qwen2.5:3b', 'local:qwen3.5:4b'] && (float) array_sum(array_column($use, 'cost')) === 0.0 && $use[0]['tin'] > 0, $use);
+        $localError = function (array $vars, callable $call): string {
+            $saved = array_map(fn ($k) => getenv($k), array_combine(array_keys($vars), array_keys($vars)));
+            foreach ($vars as $k => $v) {
+                putenv("$k=$v");
+            }
+            try {
+                $call();
+                return '';
+            } catch (UserError $e) {
+                return $e->getMessage();
+            } finally {
+                foreach ($saved as $k => $v) {
+                    putenv($v === false ? $k : "$k=$v");
+                }
+            }
+        };
+        $ask = fn () => Assistant::ask('كم عدد رخص البناء؟');
+        check('wrong gateway key → clear message', str_contains($localError(['RAI_LOCAL_KEY' => 'wrong'], $ask), 'RAI_LOCAL_KEY'));
+        check('model not installed → clear message', str_contains($localError(['RAI_LOCAL_MODEL' => 'llama9:70b'], $ask), 'ollama list'));
+        check('computer or tunnel off → clear message', str_contains($localError(['RAI_LOCAL_URL' => 'http://127.0.0.1:' . $freePort()], $ask), 'القناة'));
+        check('text too long for the context → clear message, nothing sent', str_contains($localError(['RAI_LOCAL_CONTEXT' => '2048'], $ask), 'RAI_LOCAL_CONTEXT'));
+        check('thinking switch sent only when set', $localError(['RAI_LOCAL_THINK' => 'false'], $ask) === '' && (array_slice(requests(), -1)[0]['body']['think'] ?? null) === false);
+        exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/bin/local-check.php") . ' 2>&1', $out, $code);
+        check('bin/local-check.php confirms the connection', $code === 0 && str_contains(implode("\n", $out), 'qwen3.5:4b'), $out);
+    }
 
     echo "Web pages\n";
     Auth::createUser('admin', 'admin-password-1', 'admin');

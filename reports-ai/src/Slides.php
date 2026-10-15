@@ -33,7 +33,8 @@ final class Slides
             return json_decode($job['slides_json'], true);
         }
         $lang = $job['language'] === 'fr' ? 'French' : 'Modern Standard Arabic';
-        $data = (new Claude('slides'))->json(
+        $data = Ai::json(
+            'slides',
             "You turn written reports of a public administration into presentation slides for a meeting, in {$lang}.",
             [['role' => 'user', 'content' => "<report>\n{$job['markdown']}\n</report>\n\n"
                 . "Make 6 to 14 slides. Slide 1: the report title, with the period or year as its only bullet. Then the main sections: 3 to 5 short bullets each (max ~15 words), keeping the key figures. "

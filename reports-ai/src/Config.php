@@ -50,6 +50,20 @@ final class Config
         return self::get('RAI_MODEL_' . strtoupper($task)) ?? self::get('RAI_MODEL', 'claude-opus-5-5');
     }
 
+    /** Who answers a task: "anthropic" (Claude, default) or "local" (Ollama). RAI_PROVIDER_<TASK>, else RAI_PROVIDER. */
+    public static function provider(string $task): string
+    {
+        $value = strtolower(self::get('RAI_PROVIDER_' . strtoupper($task)) ?? self::get('RAI_PROVIDER', 'anthropic'));
+        return in_array($value, ['local', 'ollama'], true) ? 'local' : 'anthropic';
+    }
+
+    /** Local model for a task: RAI_LOCAL_MODEL_<TASK>, else RAI_LOCAL_MODEL (a name from "ollama list"). */
+    public static function localModel(string $task): string
+    {
+        return self::get('RAI_LOCAL_MODEL_' . strtoupper($task)) ?? self::get('RAI_LOCAL_MODEL')
+            ?? throw new UserError('النموذج المحلي غير مضبوط (RAI_LOCAL_MODEL).');
+    }
+
     public static function domain(): array
     {
         if (self::$domain === null) {
