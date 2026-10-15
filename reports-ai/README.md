@@ -29,29 +29,32 @@
 
 ## ⚙️ التثبيت
 
+**بدون Composer وبدون أي مكتبة خارجية:** كل الكود PHP خام. قراءة وكتابة Word وExcel وPowerPoint مكتوبة داخل المشروع، والاتصال بـ Claude يتم عبر `curl` مباشرة. ارفع المجلد كما هو.
+
 **المتطلبات:**
-- PHP **8.1+** مع: `pdo_sqlite` (بدعم FTS5، متوفر افتراضياً)، `curl`، `mbstring`، `zip`، `xml`، `dom`، `gd`
-- **poppler-utils** (الأوامر `pdftotext` و`pdfinfo`) لقراءة ملفات PDF: `sudo apt install poppler-utils`
-- **LibreOffice** (اختياري) لقراءة الصيغ القديمة ‎.doc و‎.ppt: `sudo apt install libreoffice-core libreoffice-writer libreoffice-impress` — بدونه تُقبل ‎.docx و‎.pptx وكل صيغ Excel
-- Composer، ومفتاح [Anthropic API](https://console.anthropic.com)
+- PHP **8.1+** مع الإضافات: `pdo_sqlite` (بدعم FTS5، متوفر افتراضياً)، `curl`، `mbstring`، `zip`، `dom`، `xmlreader` — كلها مفعّلة عادة في cPanel (‏«Select PHP Version» ← Extensions)
+- **poppler-utils** (الأوامر `pdftotext` و`pdfinfo`) لقراءة ملفات **PDF** فقط. تحقّق في Terminal: `which pdftotext`. إن لم يكن موجوداً على الاستضافة المشتركة: اطلب تثبيته من مزوّد الاستضافة، أو عالج ملفات PDF على حاسوبك (انظر أسفله). ملفات Word وExcel وPowerPoint لا تحتاجه.
+- **LibreOffice** (اختياري) لملفات ‎.doc و‎.ppt القديمة فقط. ‎.xls القديمة تُقرأ بدونه.
+- مفتاح [Anthropic API](https://console.anthropic.com)، أو نموذج محلي (انظر «نموذج محلي»).
 
+**التثبيت على cPanel:**
+1. ارفع مجلد `reports-ai` (مضغوطاً ثم «Extract» في File Manager) إلى `/home/حسابك/reports-ai`.
+2. أنشئ نطاقاً فرعياً (مثلاً `rapports.domaine.ma`) وجذره **`reports-ai/public`** فقط.
+3. انسخ `.env.example` إلى `.env` وضع فيه `ANTHROPIC_API_KEY` (أو إعدادات النموذج المحلي).
+4. في Terminal (أو SSH):
 ```bash
-cd reports-ai
-composer install --no-dev --optimize-autoloader
-cp .env.example .env && nano .env            # ضع ANTHROPIC_API_KEY
-chmod 775 storage && chown www-data:www-data storage
-
+cd ~/reports-ai
+chmod 775 storage
 php bin/user.php admin admin                 # مسؤول (يضيف ويحذف التقارير)
 php bin/user.php fatima user                 # مستخدم (يسأل، يطّلع على الإحصائيات، يحرّر تقارير)
 ```
+5. في «Cron Jobs»: كل دقيقة `php /home/حسابك/reports-ai/bin/worker.php > /dev/null 2>&1` (قد يكون المسار `/usr/local/bin/php`).
 
-**الاستضافة:** اجعل جذر الموقع هو المجلد `public/` فقط (مثلاً `rapports.domaine.ma`). ملف `.htaccess` جاهز لـ Apache.
+**بدون pdftotext على الاستضافة:** ثبّت PHP وpoppler على حاسوبك، أدخل ملفات PDF هناك (`php bin/worker.php --ingest …` ثم `php bin/worker.php`)، ثم ارفع الملف `storage/reports-ai.sqlite` ومجلد `storage/uploads` إلى الاستضافة.
 
-**المهام الخلفية:** معالجة تقرير أو تحرير تقرير جديد تستغرق دقائق، فتُنفَّذ في الخلفية:
-```cron
-* * * * * php /var/www/reports-ai/bin/worker.php > /dev/null 2>&1
-```
-(تبدأ المنصة المعالجة فوراً إن كان `exec` مسموحاً على الخادم، وcron احتياط.)
+**الاستضافة:** جذر الموقع هو المجلد `public/` فقط. ملف `.htaccess` جاهز لـ Apache.
+
+**المهام الخلفية:** معالجة تقرير أو تحرير تقرير جديد تستغرق دقائق، فتُنفَّذ في الخلفية بمهمة cron السابقة. تبدأ المنصة المعالجة فوراً إن كان `exec` مسموحاً على الخادم، وcron احتياط.
 
 **إضافة التقارير الـ20 دفعة واحدة من سطر الأوامر:**
 ```bash
@@ -186,9 +189,9 @@ RAI_LOCAL_KEY=…                                     # مفتاح البواب�
 php tests/run.php           # كل المهام على Claude
 php tests/run.php --local   # كل المهام على نموذج محلي (Ollama مزيّف)، والعروض على Claude
 ```
-الوضع المحلي (85 اختباراً) يستعمل خادم Ollama مزيّفاً خلف بوابة بمفتاح (`tests/mock_ollama.php`)، ويتحقق أيضاً من الرسائل الواضحة عند خطأ المفتاح، أو نموذج غير مثبت، أو حاسوب/قناة متوقفة، أو نص أطول من السياق.
+الوضع المحلي (87 اختباراً) يستعمل خادم Ollama مزيّفاً خلف بوابة بمفتاح (`tests/mock_ollama.php`)، ويتحقق أيضاً من الرسائل الواضحة عند خطأ المفتاح، أو نموذج غير مثبت، أو حاسوب/قناة متوقفة، أو نص أطول من السياق.
 
-78 اختباراً على خادم Claude مزيّف (`tests/mock_claude.php`) يتحقق من صحة كل طلب كما يفعل Anthropic (تناوب الرسائل، إرجاع كتل التفكير ونتائج الأدوات، مخططات JSON، خيار fallbacks حسب النموذج)، باستعمال **4 تقارير تجريبية وهمية** في [`samples/`](samples/) (عربية وفرنسية):
+83 اختباراً على خادم Claude مزيّف (`tests/mock_claude.php`) يتحقق من صحة كل طلب كما يفعل Anthropic (تناوب الرسائل، إرجاع كتل التفكير ونتائج الأدوات، مخططات JSON، خيار fallbacks حسب النموذج) ومن إعادة المحاولة عند انشغال الخدمة، مع ملفات Word وExcel (‎.xlsx و‎.ods و‎.xls القديمة) وPowerPoint أنشأتها برامج أخرى في [`tests/fixtures/`](tests/fixtures/)، باستعمال **4 تقارير تجريبية وهمية** في [`samples/`](samples/) (عربية وفرنسية):
 إدخال التقارير، ملفات Word وExcel وPowerPoint و‎.doc القديمة (تُنشأ أثناء الاختبار)، تصحيح «لا» ورفض التصحيح غير الآمن، توحيد المؤشرات بين اللغتين، الإحصائيات والحسابات، البحث، المساعد بالأدوات، تحرير التقارير وتصدير Word وExcel (مع الرسم البياني) وPowerPoint (مع رفض رسم يحتوي رقماً غير موجود في التقرير)، الرفع من الصفحة والمعالجة في الخلفية، رفض الملفات الممسوحة، الحذف، والصفحات (الدخول، الصلاحيات، CSRF، CSV).
 
 ---
@@ -207,7 +210,10 @@ reports-ai/
 ├── src/Assistant.php         ← الإجابة عن الأسئلة
 ├── src/ReportWriter.php      ← تحرير التقارير الجديدة
 ├── src/Stats.php، Search.php ← السلاسل الإحصائية والبحث النصي (SQLite FTS5)
+├── src/Sheets.php، Xls.php   ← قراءة Excel (‎.xlsx ‎.ods ‎.csv و‎.xls القديمة) بدون مكتبات
 ├── src/Docx.php، Excel.php، Slides.php ← تصدير Word وExcel وPowerPoint
+├── src/Ooxml.php، XlsxWriter.php، PptxWriter.php ← كتابة ملفات Office بدون مكتبات
+├── src/autoload.php          ← تحميل الأصناف (بدل Composer)
 ├── config/domain.php         ← إعدادات القطاع (التعمير)
 ├── bin/worker.php، user.php  ← المهام الخلفية وإدارة المستخدمين
 ├── bin/local-check.php       ← فحص الاتصال بالنموذج المحلي

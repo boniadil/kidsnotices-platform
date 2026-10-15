@@ -12,7 +12,8 @@
  *  - no sampling parameters, no disabled thinking.
  * Scripted answers: describe / facts / mappings (structured outputs) and a tool-use dialogue.
  * Every request is appended to $MOCK_LOG_DIR/requests.jsonl.
- * "__REFUSE__" in the last user message → stop_reason "refusal".
+ * "__REFUSE__" in the last user message → stop_reason "refusal"; "__BUSY_ONCE__" → one 429 then normal answers;
+ * "__BAD_KEY__" → 401; "__STREAM_ERROR__" → an "overloaded" error event in the middle of the stream.
  */
 
 declare(strict_types=1);
@@ -99,6 +100,24 @@ foreach ($messages as $i => $m) {
 }
 if ($pendingToolIds || end($messages)['role'] !== 'user') {
     fail(400, 'last message must be a user turn answering all tool calls');
+}
+
+// ---- error scenarios (for the client's retries) -------------------------------------------
+$lastText = textOf(end($messages)['content']);
+if (str_contains($lastText, '__BUSY_ONCE__') && ($dir = getenv('MOCK_LOG_DIR')) && !is_file("$dir/busy-once")) {
+    touch("$dir/busy-once");
+    header('retry-after: 0');
+    fail(429, 'rate limited');
+}
+if (str_contains($lastText, '__BAD_KEY__')) {
+    fail(401, 'invalid x-api-key');
+}
+if (str_contains($lastText, '__STREAM_ERROR__')) {
+    header('Content-Type: text/event-stream');
+    header('retry-after: 0');
+    echo "event: message_start\ndata: " . json_encode(['type' => 'message_start', 'message' => ['id' => 'msg_x', 'type' => 'message', 'role' => 'assistant', 'model' => $model, 'content' => [], 'stop_reason' => null, 'usage' => ['input_tokens' => 1, 'output_tokens' => 1]]]) . "\n\n";
+    echo "event: error\ndata: " . json_encode(['type' => 'error', 'error' => ['type' => 'overloaded_error', 'message' => 'Overloaded']]) . "\n\n";
+    exit;
 }
 
 // ---- scripted answer ----------------------------------------------------------------------

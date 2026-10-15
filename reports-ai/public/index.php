@@ -27,7 +27,7 @@ if (PHP_SAPI === 'cli-server' && is_file(__DIR__ . parse_url($_SERVER['REQUEST_U
     return false;
 }
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/src/autoload.php';
 Config::loadEnvFile(dirname(__DIR__) . '/.env');
 Auth::start();
 
@@ -238,7 +238,7 @@ try {
             }
             header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             header("Content-Disposition: attachment; filename=\"$name.docx\"");
-            echo Docx::build($job['markdown'], $job['language']);
+            echo Docx::build($job['markdown'], $job['language'], $job['title']);
             exit;
 
         case 'POST /write/delete':

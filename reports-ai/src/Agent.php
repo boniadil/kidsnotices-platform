@@ -30,18 +30,18 @@ final class Agent
         $claude = new Claude($this->task);
         for ($turn = 0; $turn < $this->maxTurns; $turn++) {
             $response = $claude->withTools($system, $messages, Tools::definitions(), $effort, $maxTokens);
-            if ($response->stopReason !== 'tool_use') {
+            if ($response['stop_reason'] !== 'tool_use') {
                 return trim(Claude::text($response));
             }
             $results = [];
-            foreach ($response->content as $block) {
-                if ($block->type === 'tool_use') {
-                    [$content, $isError] = $this->tools->run($block->name, $block->input);
-                    $results[] = ['type' => 'tool_result', 'toolUseID' => $block->id, 'content' => $content, 'isError' => $isError];
+            foreach ($response['content'] as $block) {
+                if ($block['type'] === 'tool_use') {
+                    [$content, $isError] = $this->tools->run($block['name'], json_decode((string) json_encode($block['input']), true));
+                    $results[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'], 'content' => $content, 'is_error' => $isError];
                 }
             }
             // The assistant turn goes back unchanged (thinking blocks included), then all results in one user turn.
-            $messages[] = ['role' => 'assistant', 'content' => $response->content];
+            $messages[] = ['role' => 'assistant', 'content' => $response['content']];
             $messages[] = ['role' => 'user', 'content' => $results];
         }
         throw new UserError('احتاج السؤال إلى خطوات كثيرة. اجعله أكثر تحديداً.');

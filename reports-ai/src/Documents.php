@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace ReportsAI;
 
-use PhpOffice\PhpSpreadsheet\IOFactory as SpreadsheetIO;
-
 /**
  * Reads every supported document into "units" (the equivalent of pages), each with a label used
  * in citations: PDF and Word → page («ص 3»), Excel → sheet («ورقة: Permis»), PowerPoint → slide («شريحة 4»).
  *
  *  PDF            pdftotext, page by page
  *  Word  .docx    paragraphs and tables; pages split at the page breaks Word stored in the file
- *  Excel .xlsx .xls .ods .csv   one unit per sheet (long sheets split by rows); cells joined with " | "
+ *  Excel .xlsx .xls .ods .csv   one unit per sheet (long sheets split by rows); cells joined with " | " (Sheets, Xls)
  *  PowerPoint .pptx   one unit per slide, in presentation order (text boxes and tables)
  *  .doc .ppt .odt .odp   converted first with LibreOffice (soffice), when installed
  */
@@ -139,33 +137,22 @@ final class Documents
 
     private static function spreadsheet(string $file, string $ext): array
     {
-        $reader = SpreadsheetIO::createReader(match ($ext) { 'xlsx' => 'Xlsx', 'xls' => 'Xls', 'ods' => 'Ods', 'csv' => 'Csv' });
-        $reader->setReadDataOnly(false); // keep number formats, compute formulas
-        if ($ext === 'csv') {
-            $reader->setInputEncoding('UTF-8');
-            $reader->setDelimiter(self::csvDelimiter($file));
-        }
-        $book = $reader->load($file);
         $units = [];
-        $total = 0;
-        foreach ($book->getWorksheetIterator() as $sheet) {
+        foreach (Sheets::read($file, $ext, self::MAX_ROWS) as $sheet) {
             $rows = [];
-            foreach ($sheet->toArray(null, true, true, false) as $row) {
-                while ($row && ($row[count($row) - 1] === null || $row[count($row) - 1] === '')) {
+            foreach ($sheet['rows'] as $row) {
+                $row = array_map(fn ($c) => trim(preg_replace('/\s+/u', ' ', $c)), $row);
+                while ($row && $row[count($row) - 1] === '') {
                     array_pop($row);
                 }
-                if ($row === []) {
-                    continue;
-                }
-                $rows[] = implode(' | ', array_map(fn ($c) => trim(preg_replace('/\s+/u', ' ', (string) $c)), $row));
-                if (++$total > self::MAX_ROWS) {
-                    throw new UserError('هذا الملف يتجاوز ' . self::MAX_ROWS . ' صف. احتفظ بأوراق الملخص فقط.');
+                if ($row !== []) {
+                    $rows[] = implode(' | ', $row);
                 }
             }
             if ($rows === []) {
                 continue;
             }
-            $name = $sheet->getTitle();
+            $name = $sheet['name'];
             // Long sheets are split; the header row is repeated so every part keeps column meanings.
             $header = $rows[0];
             foreach (array_chunk(array_slice($rows, 1), self::ROWS_PER_UNIT) ?: [[]] as $i => $chunk) {
@@ -175,16 +162,7 @@ final class Documents
                 $units[] = ['label' => $label, 'text' => "[Sheet: {$name}]\n" . $header . "\n" . implode("\n", $chunk)];
             }
         }
-        $book->disconnectWorksheets();
         return $units;
-    }
-
-    private static function csvDelimiter(string $file): string
-    {
-        $line = (string) fgets(fopen($file, 'r'));
-        $counts = array_map(fn ($d) => substr_count($line, $d), [',' => ',', ';' => ';', "\t" => "\t"]);
-        arsort($counts);
-        return (string) array_key_first($counts);
     }
 
     // ---- PowerPoint ---------------------------------------------------------------------------

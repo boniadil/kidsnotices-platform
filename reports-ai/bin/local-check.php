@@ -14,7 +14,7 @@ use ReportsAI\Ollama;
 if (PHP_SAPI !== 'cli') {
     exit(1);
 }
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/src/autoload.php';
 Config::loadEnvFile(dirname(__DIR__) . '/.env');
 
 $url = rtrim(Config::get('RAI_LOCAL_URL', 'http://127.0.0.1:11434'), '/');

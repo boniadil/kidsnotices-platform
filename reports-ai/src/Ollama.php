@@ -152,6 +152,6 @@ final class Ollama
     /** Tool definitions (Tools::definitions) in Ollama format. */
     public static function tools(array $definitions): array
     {
-        return array_map(fn ($t) => ['type' => 'function', 'function' => ['name' => $t['name'], 'description' => $t['description'], 'parameters' => $t['inputSchema']]], $definitions);
+        return array_map(fn ($t) => ['type' => 'function', 'function' => ['name' => $t['name'], 'description' => $t['description'], 'parameters' => $t['input_schema']]], $definitions);
     }
 }

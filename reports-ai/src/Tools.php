@@ -22,12 +22,12 @@ final class Tools
             [
                 'name' => 'list_reports',
                 'description' => 'List the annual reports in the knowledge base (id, title, year, language, pages). Call it first when you need to know which years are covered.',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
+                'input_schema' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
             ],
             [
                 'name' => 'find_indicators',
                 'description' => 'Find statistical indicators (figures extracted from the reports and unified across years and languages) whose name matches the query. Returns id, Arabic and French names, unit, category and the years with data. Query in Arabic or French; try synonyms if nothing is found.',
-                'inputSchema' => [
+                'input_schema' => [
                     'type' => 'object',
                     'properties' => ['query' => ['type' => 'string', 'description' => 'Words describing the indicator, e.g. "رخص البناء" or "autorisations de construire"']],
                     'required' => ['query'],
@@ -36,7 +36,7 @@ final class Tools
             [
                 'name' => 'get_series',
                 'description' => 'Get the yearly values of one indicator with the source of each value (report, page, verbatim quote), and computed statistics: first/last, total change and %, compound annual growth rate, min, max, mean, sum, year-on-year changes, missing years. Use these computed numbers instead of calculating yourself.',
-                'inputSchema' => [
+                'input_schema' => [
                     'type' => 'object',
                     'properties' => [
                         'indicator_id' => ['type' => 'integer'],
@@ -50,7 +50,7 @@ final class Tools
             [
                 'name' => 'search_reports',
                 'description' => 'Full-text search in the text of all reports (Arabic and French). Returns the best passages with year, page and reference. Use it for qualitative questions (projects, events, explanations, context) and to check figures not found as indicators.',
-                'inputSchema' => [
+                'input_schema' => [
                     'type' => 'object',
                     'properties' => [
                         'query' => ['type' => 'string'],
@@ -62,7 +62,7 @@ final class Tools
             ],
         ];
         // Tool inputs stream as they are generated; inputs are validated in run().
-        return array_map(fn ($t) => $t + ['eagerInputStreaming' => true], $tools);
+        return array_map(fn ($t) => $t + ['eager_input_streaming' => true], $tools);
     }
 
     /** Executes a tool call. Returns [content, isError]. */

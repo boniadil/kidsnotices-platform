@@ -26,7 +26,7 @@ use ReportsAI\UserError;
 use ReportsAI\Worker;
 
 $root = dirname(__DIR__);
-require "$root/vendor/autoload.php";
+require "$root/src/autoload.php";
 
 $tmp = sys_get_temp_dir() . '/rai-tests-' . bin2hex(random_bytes(4));
 mkdir($tmp, 0700, true);
@@ -179,6 +179,21 @@ try {
     $r2 = Assistant::ask('Et en 2024 ?', [['role' => 'assistant', 'content' => 'orphan'], ['role' => 'user', 'content' => 'q1'], ['role' => 'user', 'content' => 'q1 again'], ['role' => 'assistant', 'content' => 'a1'], ['role' => 'user', 'content' => 'dangling']]);
     check('messy history repaired into alternating turns', $r2['answer'] !== '');
     if (!$local) {
+        $before = count(requests());
+        $r3 = Assistant::ask('__BUSY_ONCE__ كم عدد رخص البناء؟');
+        check('API busy (429): retried, then answered', $r3['answer'] !== '' && count(requests()) - $before === 6, count(requests()) - $before);
+        $error = function (string $q): string {
+            try {
+                Assistant::ask($q);
+                return '';
+            } catch (UserError $e) {
+                return $e->getMessage();
+            }
+        };
+        $before = count(requests());
+        check('error inside the stream: retried twice, then a clear message', str_contains($error('__STREAM_ERROR__'), 'مشغولة') && count(requests()) - $before === 3);
+        $before = count(requests());
+        check('wrong API key: clear message, no retry', str_contains($error('__BAD_KEY__'), 'ANTHROPIC_API_KEY') && count(requests()) - $before === 1);
         try {
             Assistant::ask('__REFUSE__');
             check('refusal reported', false);
@@ -226,44 +241,16 @@ try {
     check('deleting removes its passages from search', Search::passages('infractions urbanisme', 2024, 2024) === []);
 
     echo "Word, Excel, PowerPoint\n";
-    // Fixtures written with the same libraries an administration's files come from.
-    $word = new \PhpOffice\PhpWord\PhpWord();
-    $sec = $word->addSection();
-    $sec->addText('التقرير السنوي لأنشطة الوكالة برسم سنة 2019');
-    $sec->addPageBreak();
-    $sec->addText('بلغ عدد رخص البناء المسلمة 1100 رخصة خلال السنة.');
-    $tbl = $sec->addTable();
-    $tbl->addRow();
-    $tbl->addCell(4000)->addText('مشاريع التجزئات العقارية');
-    $tbl->addCell(2000)->addText('15');
-    \PhpOffice\PhpWord\IOFactory::createWriter($word, 'Word2007')->save("$tmp/rapport-2019.docx");
-
-    $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-    $sheet = $book->getActiveSheet()->setTitle('Permis');
-    $sheet->fromArray([['Indicateur', 'Valeur'], ['Autorisations de construire délivrées', 1180], ['Projets de lotissement', 17]]);
-    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save("$tmp/stats-2020.xlsx");
-
-    $ppt = new \PhpOffice\PhpPresentation\PhpPresentation();
-    $ppt->getActiveSlide()->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('حصيلة سنة 2018');
-    $s2 = $ppt->createSlide();
-    $s2->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('عدد رخص البناء المسلمة 990');
-    $t2 = $s2->createTableShape(2)->setWidth(600);
-    $row = $t2->createRow();
-    $row->nextCell()->createTextRun('مشاريع التجهيزات العمومية');
-    $row->nextCell()->createTextRun('39');
-    \PhpOffice\PhpPresentation\IOFactory::createWriter($ppt, 'PowerPoint2007')->save("$tmp/bilan-2018.pptx");
-
+    // Fixtures made by other programs (PhpOffice libraries, LibreOffice): tests/fixtures/.
     foreach (['rapport-2019.docx' => 2019, 'stats-2020.xlsx' => 2020, 'bilan-2018.pptx' => 2018] as $name => $year) {
         $copy = "$tmp/upload-$name";
-        copy("$tmp/$name", $copy);
+        copy("$root/tests/fixtures/$name", $copy);
         Ingest::register($copy, $name, $year, '');
     }
     $hasSoffice = is_executable('/usr/bin/soffice');
     if ($hasSoffice) {
         // Legacy .doc: made from a .docx with LibreOffice, read back through the same conversion.
-        $w = new \PhpOffice\PhpWord\PhpWord();
-        $w->addSection()->addText('عدد رخص البناء المسلمة 870');
-        \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save("$tmp/old.docx");
+        file_put_contents("$tmp/old.docx", Docx::build('عدد رخص البناء المسلمة 870', 'ar'));
         exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
         Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
     }
@@ -285,6 +272,11 @@ try {
     $src2020 = array_values(array_filter($s['points'], fn ($p) => $p['year'] === 2020))[0]['source'] ?? [];
     check('sources name the sheet / slide', ($src2020['label'] ?? '') === 'ورقة «Permis»' && str_contains(Search::refLabel((int) explode(':', substr($src2020['ref'], 1))[0], 1), 'ورقة'), $src2020);
     check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages']))) === $repairsBefore);
+    $sheetUnits = fn (string $ext) => array_values(\ReportsAI\Documents::units("$root/tests/fixtures/stats-2020.$ext", "stats.$ext"));
+    $expected = [['label' => 'ورقة «Permis»', 'text' => "[Sheet: Permis]\nIndicateur | Valeur\nAutorisations de construire délivrées | 1180\nProjets de lotissement | 17\nTotal | 1197"]];
+    check('Excel .xlsx, .ods and old .xls read alike (formula results included, empty sheet skipped)', $sheetUnits('xlsx') === $expected && $sheetUnits('ods') === $expected && $sheetUnits('xls') === $expected, [$sheetUnits('xlsx'), $sheetUnits('ods'), $sheetUnits('xls')]);
+    file_put_contents("$tmp/win.csv", iconv('UTF-8', 'WINDOWS-1256', "Indicateur;Valeur\n\"Projets; lotissement\";12\nمشاريع;3\n"));
+    check('CSV in Windows Arabic encoding, quoted separators', array_values(\ReportsAI\Documents::units("$tmp/win.csv", 'win.csv'))[0]['text'] === "[Sheet: CSV]\nIndicateur | Valeur\nProjets; lotissement | 12\nمشاريع | 3");
     $copy = "$tmp/bad.xlsx";
     file_put_contents($copy, '%PDF-1.4 not a workbook');
     try {
@@ -309,11 +301,12 @@ try {
     $z->open("$tmp/series.xlsx");
     $sheetXml = (string) $z->getFromName('xl/worksheets/sheet1.xml');
     check('Excel export: right-to-left sheet, values and a native chart', preg_match('/rightToLeft="(1|true)"/', $sheetXml) === 1 && $z->locateName('xl/charts/chart1.xml') !== false && preg_match('#<v>1240(\.0)?</v>#', $sheetXml) === 1);
-    $all = \PhpOffice\PhpSpreadsheet\IOFactory::load((function () use ($tmp) { file_put_contents("$tmp/all.xlsx", Excel::allIndicators()); return "$tmp/all.xlsx"; })());
-    $head = $all->getSheet(0)->rangeToArray('A1:L1', null, true, false)[0];
-    $permRow = array_values(array_filter($all->getSheet(0)->toArray(null, true, false), fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
-    check('Excel export of all indicators: one column per year', in_array(2018, $head) && in_array(2023, $head) && in_array(1512, $permRow) && in_array(990, $permRow), [$head, $permRow]);
-    check('Excel export: values with sources sheet', $all->getSheet(1)->getHighestRow() > 20);
+    file_put_contents("$tmp/all.xlsx", Excel::allIndicators());
+    $all = \ReportsAI\Sheets::read("$tmp/all.xlsx", 'xlsx');
+    $head = $all[0]['rows'][0];
+    $permRow = array_values(array_filter($all[0]['rows'], fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
+    check('Excel export of all indicators: one column per year', in_array('2018', $head, true) && in_array('2023', $head, true) && in_array('1512', $permRow, true) && in_array('990', $permRow, true), [$head, $permRow]);
+    check('Excel export: values with sources sheet', count($all[1]['rows']) > 20);
     $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
     $pptx = Slides::build($job);
     file_put_contents("$tmp/deck.pptx", $pptx);
