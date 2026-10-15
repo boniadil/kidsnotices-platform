@@ -4,18 +4,16 @@ declare(strict_types=1);
 
 namespace KidsNotices\AI;
 
-use Anthropic\Beta\Messages\BetaMessage;
-
 /**
  * One row per AI call in the usage_log table (tokens + estimated cost),
  * used for limits, billing and the dashboard. Question/answer text is never stored.
  */
 final class Usage
 {
-    public static function record(RequestContext $ctx, BetaMessage $response): void
+    public static function record(RequestContext $ctx, array $response): void
     {
         $now = time();
-        $usage = $response->usage;
+        $usage = $response['usage'] ?? [];
         Database::pdo()->prepare(
             'INSERT INTO usage_log (created_at, day, month, client_id, school_id, feature, end_user, model, stop_reason,
                                     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
@@ -28,13 +26,13 @@ final class Usage
             $ctx->schoolId,
             $ctx->feature,
             $ctx->endUser,
-            $response->model,
-            $response->stopReason,
-            $usage->inputTokens,
-            $usage->outputTokens,
-            $usage->cacheReadInputTokens ?? 0,
-            $usage->cacheCreationInputTokens ?? 0,
-            Pricing::cost($response->model, $usage),
+            $response['model'],
+            $response['stop_reason'],
+            (int) ($usage['input_tokens'] ?? 0),
+            (int) ($usage['output_tokens'] ?? 0),
+            (int) ($usage['cache_read_input_tokens'] ?? 0),
+            (int) ($usage['cache_creation_input_tokens'] ?? 0),
+            Pricing::cost($response['model'], $usage),
         ]);
     }
 

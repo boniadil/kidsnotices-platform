@@ -131,9 +131,11 @@ if (array_key_exists('fallbacks', $req)) {
 $all = json_encode([$req['system'] ?? '', $messages], JSON_UNESCAPED_UNICODE);
 $last = end($messages)['content'];
 if (str_contains($last, '__RATELIMIT__')) {
+    header('retry-after: 0'); // the service retries; no waiting in tests
     fail(429, 'rate_limit_error', 'Number of requests has exceeded your rate limit');
 }
 if (str_contains($last, '__APIERR__')) {
+    header('retry-after: 0'); // the service retries; no waiting in tests
     fail(500, 'api_error', 'internal detail: shard 7 overloaded, org org_SECRET123');
 }
 preg_match_all('/\[[SPTEN][A-Za-z0-9_-]+\]/', $last, $codes);

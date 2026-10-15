@@ -46,11 +46,10 @@
 
 ## ⚙️ التثبيت
 
-**المتطلبات:** PHP **8.1 أو أحدث** مع الامتدادات `curl` و`mbstring` و`pdo_sqlite` (أو `pdo_mysql` إن اخترت MySQL)، و Composer.
+**المتطلبات:** PHP **8.1 أو أحدث** مع الامتدادات `curl` و`mbstring` و`pdo_sqlite` (أو `pdo_mysql` إن اخترت MySQL). **بدون Composer وبدون أي مكتبة خارجية**: الكود PHP خام، والاتصال بـ Claude عبر `curl` مباشرة.
 
 ```bash
 cd ai-service
-composer install --no-dev --optimize-autoloader
 cp .env.example .env && nano .env          # ضع ANTHROPIC_API_KEY وراجع النماذج والحدود
 chmod 775 storage && chown www-data:www-data storage    # قاعدة SQLite تُنشأ هنا تلقائياً
 ```
@@ -77,15 +76,14 @@ php bin/kn-admin.php school:add 1 atlas-fes
 
 ### الاستضافة على نطاق فرعي `ai.kidsnotices.ma`
 
-اجعل جذر الموقع (DocumentRoot) هو المجلد **`public/`** فقط، حتى لا تكون `.env` و`vendor/` و`storage/` (التي فيها قاعدة البيانات) قابلة للوصول من الإنترنت.
+اجعل جذر الموقع (DocumentRoot) هو المجلد **`public/`** فقط، حتى لا تكون `.env` و`storage/` (التي فيها قاعدة البيانات) قابلة للوصول من الإنترنت.
 
 **استضافة مشتركة (cPanel):**
 1. ارفع مجلد `ai-service` **خارج** `public_html` (مثلاً `/home/USER/ai-service`).
 2. **Domains → Create a new domain** (أو Subdomains): `ai.kidsnotices.ma` بجذر `/home/USER/ai-service/public`.
 3. **Select PHP Version**: اختر 8.1 أو أحدث، وفعّل `curl` و`mbstring` و`pdo_sqlite` (أو `pdo_mysql`).
-4. **Terminal** (إن وُجد): `composer install --no-dev` — وإلا نفّذه على حاسوبك وارفع مجلد `vendor/`.
-5. **SSL/TLS Status**: فعّل AutoSSL للنطاق الفرعي.
-6. أوامر `bin/kn-admin.php` تُنفَّذ من Terminal: `php bin/kn-admin.php …`.
+4. **SSL/TLS Status**: فعّل AutoSSL للنطاق الفرعي.
+5. أوامر `bin/kn-admin.php` تُنفَّذ من Terminal: `php bin/kn-admin.php …`.
 
 **Apache:** ملف `public/.htaccess` جاهز (يتطلب `mod_rewrite`)، و`storage/.htaccess` يمنع الوصول للتخزين احتياطاً.
 

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace KidsNotices\AI;
 
-use Anthropic\Beta\Messages\BetaUsage;
-
 /**
  * Estimated cost of a call, in US dollars, from Anthropic's public per-token prices.
  * Prices change: check https://www.anthropic.com/pricing and update this table when needed.
@@ -23,14 +21,15 @@ final class Pricing
         'claude-haiku-5-5' => [0.10, 0.50, 0.125, 0.01],
     ];
 
-    public static function cost(string $model, BetaUsage $usage): float
+    /** @param array<string, int|null> $usage the API's usage object */
+    public static function cost(string $model, array $usage): float
     {
         [$in, $out, $write, $read] = self::PRICES[$model] ?? self::PRICES['claude-opus-5-5'];
         return round((
-            $usage->inputTokens * $in
-            + $usage->outputTokens * $out
-            + ($usage->cacheCreationInputTokens ?? 0) * $write
-            + ($usage->cacheReadInputTokens ?? 0) * $read
+            ($usage['input_tokens'] ?? 0) * $in
+            + ($usage['output_tokens'] ?? 0) * $out
+            + ($usage['cache_creation_input_tokens'] ?? 0) * $write
+            + ($usage['cache_read_input_tokens'] ?? 0) * $read
         ) / 1_000_000, 6);
     }
 }

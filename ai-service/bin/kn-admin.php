@@ -23,7 +23,7 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/src/autoload.php';
 Config::loadEnvFile(dirname(__DIR__) . '/.env');
 
 $args = array_slice($argv, 1);
