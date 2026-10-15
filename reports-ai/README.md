@@ -99,6 +99,50 @@ php bin/worker.php          # يعالج كل التقارير في الانتظ
 
 ---
 
+## 🖥️ تشغيل المنصة كاملة على حاسوبك (Apache: XAMPP أو WAMP)
+
+إذا اشتغلت المنصة على حاسوبك نفسه، فلا حاجة إلى القناة ولا إلى خدمة قراءة الملفات: `pdftotext` والنموذج المحلي على نفس الجهاز.
+
+1. **Apache وPHP:** ثبّت [XAMPP](https://www.apachefriends.org) (PHP 8.1 أو أحدث). في XAMPP Control Panel اضغط Start أمام Apache: يجب أن يصبح أخضر، و`http://localhost` يعرض صفحة XAMPP. (إن لم يبدأ: المنفذ 80 مستعمل من برنامج آخر، استعمل 8080 كما في الخطوة 3.)
+2. **php.ini** (Control Panel ← Apache ← Config ← PHP (php.ini)): احذف `;` من أول هذه الأسطر، ثم عدّل الحجم:
+   ```ini
+   extension=curl
+   extension=mbstring
+   extension=pdo_sqlite
+   extension=zip
+   upload_max_filesize = 64M
+   post_max_size = 70M
+   ```
+3. **الموقع:** ضع المجلد في `E:\reports-ai`، وأضف في آخر `C:\xampp\apache\conf\extra\httpd-vhosts.conf`:
+   ```apache
+   Listen 8080
+   <VirtualHost *:8080>
+       DocumentRoot "E:/reports-ai/public"
+       <Directory "E:/reports-ai/public">
+           AllowOverride All
+           Require all granted
+       </Directory>
+   </VirtualHost>
+   ```
+   أعد تشغيل Apache، ثم افتح `http://localhost:8080`.
+4. **`.env`** (انسخه من `.env.example`):
+   ```
+   ANTHROPIC_API_KEY=…                      # أو النموذج المحلي مباشرة، بدون قناة:
+   # RAI_PROVIDER=local
+   # RAI_LOCAL_URL=http://127.0.0.1:11435
+   RAI_POPPLER_DIR=E:\reports-ai\extractor\tools\poppler\poppler-24.08.0\Library\bin
+   RAI_PHP_CLI=C:\xampp\php\php.exe
+   ```
+   `RAI_POPPLER_DIR` هو المجلد الذي فيه `pdftotext.exe` (حمّله `start-windows.bat` في `extractor\tools\poppler`؛ رقم النسخة قد يختلف). لا تضع `RAI_EXTRACT_URL`.
+5. **المسؤول:** في نافذة أوامر داخل `E:\reports-ai`:
+   ```bat
+   C:\xampp\php\php.exe bin\user.php admin admin
+   C:\xampp\php\php.exe bin\local-check.php
+   ```
+6. **المعالجة في الخلفية** تبدأ وحدها بعد كل رفع. احتياطاً (مثلاً بعد إعادة تشغيل الحاسوب): `C:\xampp\php\php.exe bin\worker.php` يعالج ما بقي في الانتظار.
+
+---
+
 ## 🧭 الاستعمال
 
 | الصفحة | ما تفعله |
