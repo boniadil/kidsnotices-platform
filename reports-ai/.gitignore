@@ -2,3 +2,6 @@
 /storage/*
 !/storage/.gitkeep
 !/storage/.htaccess
+/extractor/key.txt
+/extractor/tools/
+/extractor/*.log

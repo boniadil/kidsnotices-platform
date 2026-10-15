@@ -252,6 +252,7 @@ try {
         // Legacy .doc: made from a .docx with LibreOffice, read back through the same conversion.
         file_put_contents("$tmp/old.docx", Docx::build('عدد رخص البناء المسلمة 870', 'ar'));
         exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
+        copy("$tmp/old.doc", "$tmp/old-copy.doc"); // register() moves the file into storage
         Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
     }
     $repairsBefore = count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages'])));
@@ -352,6 +353,56 @@ try {
         exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/bin/local-check.php") . ' 2>&1', $out, $code);
         check('bin/local-check.php confirms the connection', $code === 0 && str_contains(implode("\n", $out), 'qwen3.5:4b'), $out);
     }
+
+    echo "File-reading service on your computer (extractor/)\n";
+    $extractPort = $freePort();
+    $serve("$root/extractor", "$root/extractor/server.php", $extractPort, ['RAI_EXTRACT_KEY' => 'test-extract-key-0123456789']);
+    $remoteEnv = ['RAI_EXTRACT_URL' => "http://127.0.0.1:$extractPort", 'RAI_EXTRACT_KEY' => 'test-extract-key-0123456789', 'RAI_EXTRACT_REMOTE' => 'always'];
+    $withEnv = function (array $vars, callable $call) {
+        $saved = array_map(fn ($k) => getenv($k), array_combine(array_keys($vars), array_keys($vars)));
+        foreach ($vars as $k => $v) {
+            putenv("$k=$v");
+        }
+        try {
+            return $call();
+        } catch (UserError $e) {
+            return $e->getMessage();
+        } finally {
+            foreach ($saved as $k => $v) {
+                putenv($v === false ? $k : "$k=$v");
+            }
+        }
+    };
+    $sample = "$root/samples/rapport-2023-ar.pdf";
+    $remoteUnits = $withEnv($remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'تقرير.pdf'));
+    check('PDF read by the service gives the same pages as here', $remoteUnits === \ReportsAI\Documents::units($sample, 'x.pdf', allowRemote: false), is_array($remoteUnits) ? count($remoteUnits) : $remoteUnits);
+    if ($hasSoffice) {
+        $doc = $withEnv($remoteEnv, fn () => \ReportsAI\Documents::units("$tmp/old-copy.doc", 'old.doc'));
+        check('old .doc read by the service', is_array($doc) && str_contains($doc[1]['text'] ?? '', '870'), $doc);
+    }
+    // Whole pipeline: a PDF read on "your computer", then repaired, indexed and analysed here.
+    copy("$root/samples/rapport-2021-ar.pdf", "$tmp/remote.pdf");
+    file_put_contents("$tmp/remote.pdf", "\n% copy\n", FILE_APPEND); // another file for the duplicate check
+    $rid = $withEnv($remoteEnv, function () use ($tmp) {
+        $id = Ingest::register("$tmp/remote.pdf", 'remote.pdf', 2012, '');
+        Worker::runOnce();
+        return $id;
+    });
+    $rr = Database::pdo()->query("SELECT status, pages, error FROM reports WHERE id = $rid")->fetch();
+    $rp = Database::pdo()->query("SELECT text FROM pages WHERE report_id = $rid AND page_no = 1")->fetchColumn();
+    check('report read by the service is processed like the others (lam-alef repaired)', $rr['status'] === 'ready' && (int) $rr['pages'] === 3 && str_contains((string) $rp, 'خلال سنة'), $rr);
+    Ingest::delete($rid);
+    check('wrong key for the service → clear message', str_contains((string) $withEnv(['RAI_EXTRACT_KEY' => 'wrong-key-0123456789xx'] + $remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'a.pdf')), 'RAI_EXTRACT_KEY'));
+    check('service not running → clear message', str_contains((string) $withEnv(['RAI_EXTRACT_URL' => 'http://127.0.0.1:' . $freePort()] + $remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'a.pdf')), 'نافذتها'));
+    $served = fn () => substr_count((string) file_get_contents("$tmp/server-$extractPort.log"), '[extractor]');
+    $before = $served();
+    $here = \ReportsAI\Documents::units($sample, 'a.pdf');
+    check('without RAI_EXTRACT_URL nothing is sent (pdftotext used here)', count($here) === 3 && $served() === $before && $before >= 3, [$before, $served()]);
+    $out = $withEnv($remoteEnv, function () use ($root) {
+        exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/bin/local-check.php") . ' 2>&1', $lines);
+        return implode("\n", $lines);
+    });
+    check('bin/local-check.php sees the service', str_contains($out, '✔ تعمل'), $out);
 
     echo "Web pages\n";
     Auth::createUser('admin', 'admin-password-1', 'admin');

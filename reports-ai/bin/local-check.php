@@ -1,15 +1,17 @@
 <?php
 
 /*
- * Checks the connection to the local model (Ollama, directly or through a gateway and a tunnel).
+ * Checks what runs on your own computer: the file-reading service (extractor/, RAI_EXTRACT_URL)
+ * and the local model (Ollama, directly or through a gateway and a tunnel).
  *   php bin/local-check.php
- * Shows which tasks use it, lists the installed models and sends one short test message per model.
+ * Shows which tasks use the local model, lists the installed models and sends one test message per model.
  */
 
 declare(strict_types=1);
 
 use ReportsAI\Config;
 use ReportsAI\Ollama;
+use ReportsAI\Pdf;
 
 if (PHP_SAPI !== 'cli') {
     exit(1);
@@ -27,9 +29,29 @@ foreach (['extract', 'map', 'repair', 'ask', 'report', 'slides'] as $task) {
         $models[$model][] = $task;
     }
 }
+
+// File reading: pdftotext here, or the file-reading service on your computer (extractor/).
+$failed = false;
+if (($extract = Config::get('RAI_EXTRACT_URL')) !== null) {
+    echo "\nخدمة قراءة الملفات على حاسوبك: $extract …\n";
+    $ch = curl_init(rtrim($extract, '/') . '/health');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . Config::get('RAI_EXTRACT_KEY', '')], CURLOPT_CONNECTTIMEOUT => 15, CURLOPT_TIMEOUT => 30]);
+    $health = json_decode((string) curl_exec($ch), true);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($status === 200 && !empty($health['ok'])) {
+        echo '✔ تعمل. PDF: ' . ($health['pdf'] ? 'نعم' : 'لا (pdftotext غير موجود على حاسوبك)') . '، ‎.doc/.ppt: ' . ($health['office'] ? 'نعم' : 'لا (LibreOffice غير مثبت)') . "\n";
+    } else {
+        fwrite(STDERR, "✘ لا تجيب (HTTP $status). " . ($status === 401 ? 'تحقق من RAI_EXTRACT_KEY.' : 'تأكد أن نافذتها مفتوحة وأن RAI_EXTRACT_URL هو العنوان المعروض فيها.') . "\n");
+        $failed = true;
+    }
+} else {
+    echo "\nقراءة PDF على هذا الخادم: " . (Pdf::available() ? '✔ pdftotext موجود' : '✘ pdftotext غير موجود — شغّل خدمة قراءة الملفات على حاسوبك (extractor/)') . "\n";
+}
+
 if ($models === []) {
-    echo "لا توجد مهمة مضبوطة على النموذج المحلي (RAI_PROVIDER=local).\n";
-    exit(0);
+    echo "\nلا توجد مهمة مضبوطة على النموذج المحلي (RAI_PROVIDER=local).\n";
+    exit($failed ? 1 : 0);
 }
 
 echo "\nالاتصال بـ $url …\n";
@@ -51,7 +73,6 @@ if ($body === false || $status !== 200) {
 $installed = array_column(json_decode((string) $body, true)['models'] ?? [], 'name');
 echo '✔ متصل. النماذج المثبتة: ' . implode('، ', $installed) . "\n";
 
-$failed = false;
 foreach ($models as $model => $tasks) {
     if (!in_array($model, $installed, true)) {
         fwrite(STDERR, "✘ النموذج «{$model}» غير مثبت (ollama pull {$model}).\n");
