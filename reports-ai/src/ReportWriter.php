@@ -16,7 +16,7 @@ final class ReportWriter
     public static function create(string $kind, string $title, string $language, array $params, string $user): int
     {
         if (!in_array($kind, ['annual', 'thematic'], true) || !in_array($language, ['ar', 'fr'], true)) {
-            throw new UserError('Invalid report type or language.');
+            throw new UserError('نوع التقرير أو لغته غير صالح.');
         }
         Database::pdo()->prepare('INSERT INTO generated_reports (kind, title, language, params_json, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
             ->execute([$kind, $title, $language, json_encode($params, JSON_UNESCAPED_UNICODE), 'queued', $user, Database::now(), Database::now()]);
@@ -40,7 +40,7 @@ final class ReportWriter
         } catch (\Throwable $e) {
             error_log('[reports-ai] write #' . $id . ': ' . $e);
             $pdo->prepare("UPDATE generated_reports SET status = 'error', error = ?, updated_at = ? WHERE id = ?")
-                ->execute([$e instanceof UserError ? $e->getMessage() : 'Writing failed. See the server log.', Database::now(), $id]);
+                ->execute([$e instanceof UserError ? $e->getMessage() : 'فشل التحرير. راجع سجل الخادم.', Database::now(), $id]);
             throw $e;
         }
     }

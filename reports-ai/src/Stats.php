@@ -19,11 +19,11 @@ final class Stats
 
     public static function series(int $indicatorId, ?int $from = null, ?int $to = null, string $scope = ''): array
     {
-        $indicator = self::indicator($indicatorId) ?? throw new UserError("Indicator #$indicatorId not found.");
+        $indicator = self::indicator($indicatorId) ?? throw new UserError("المؤشر رقم $indicatorId غير موجود.");
         $stmt = Database::pdo()->prepare(
-            'SELECT f.year, f.value, f.unit, f.scope, f.page_no, f.quote, f.verified, f.report_id, r.year AS report_year, r.title
-             FROM facts f JOIN reports r ON r.id = f.report_id
-             WHERE f.indicator_id = ? ORDER BY f.year, r.year DESC'
+            "SELECT f.year, f.value, f.unit, f.scope, f.page_no, f.quote, f.verified, f.report_id, r.year AS report_year, r.title, COALESCE(NULLIF(p.label, ''), 'ص ' || f.page_no) AS label
+             FROM facts f JOIN reports r ON r.id = f.report_id LEFT JOIN pages p ON p.report_id = f.report_id AND p.page_no = f.page_no
+             WHERE f.indicator_id = ? ORDER BY f.year, r.year DESC"
         );
         $stmt->execute([$indicatorId]);
         $all = $stmt->fetchAll();
@@ -50,6 +50,7 @@ final class Stats
                     'report' => $best['title'],
                     'report_year' => (int) $best['report_year'],
                     'page' => (int) $best['page_no'],
+                    'label' => $best['label'],
                     'quote' => $best['quote'],
                     'verified' => (bool) $best['verified'],
                 ],

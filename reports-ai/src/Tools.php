@@ -90,7 +90,7 @@ final class Tools
     {
         $series = Stats::series($id, $from, $to, $scope);
         foreach ($series['points'] as $p) {
-            $this->sources[$p['source']['ref']] = ['ref' => $p['source']['ref'], 'report' => $p['source']['report'], 'year' => $p['source']['report_year'], 'page' => $p['source']['page'], 'quote' => $p['source']['quote']];
+            $this->sources[$p['source']['ref']] = ['ref' => $p['source']['ref'], 'report' => $p['source']['report'], 'year' => $p['source']['report_year'], 'page' => $p['source']['page'], 'label' => $p['source']['label'], 'quote' => $p['source']['quote']];
         }
         $this->series[] = $series;
         return $series;
@@ -100,7 +100,7 @@ final class Tools
     {
         $passages = Search::passages($query, $from, $to);
         foreach ($passages as $p) {
-            $this->sources[$p['ref']] = ['ref' => $p['ref'], 'report' => $p['title'], 'year' => $p['year'], 'page' => $p['page'], 'quote' => mb_substr($p['text'], 0, 240)];
+            $this->sources[$p['ref']] = ['ref' => $p['ref'], 'report' => $p['title'], 'year' => $p['year'], 'page' => $p['page'], 'label' => $p['label'], 'quote' => mb_substr($p['text'], 0, 240)];
         }
         return $passages;
     }

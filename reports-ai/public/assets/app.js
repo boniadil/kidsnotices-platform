@@ -107,7 +107,7 @@
       const s = await api('/api/series?' + new URLSearchParams({ id, from, to, scope }));
       const st = s.stats || {};
       const unit = s.indicator.unit ? ' ' + esc(s.indicator.unit) : '';
-      const csv = '/stats/csv?' + new URLSearchParams({ id, from, to, scope });
+      const q = new URLSearchParams({ id, from, to, scope });
       panel.innerHTML = `
         <h2 dir="auto">${esc(s.indicator.name_ar)}</h2><p class="muted" dir="auto">${esc(s.indicator.name_fr)}${unit ? ' · الوحدة:' + unit : ''}</p>
         <div class="filters">
@@ -115,7 +115,8 @@
           <label>إلى<input type="number" id="f-to" value="${esc(to)}"></label>
           ${s.available_scopes.length > 1 ? `<label>النطاق<select id="f-scope">${s.available_scopes.map((x) => `<option value="${esc(x)}" ${x === s.scope ? 'selected' : ''}>${esc(x || 'المجموع')}</option>`).join('')}</select></label>` : ''}
           <button class="btn ghost" id="f-apply">تطبيق</button>
-          <a class="btn ghost" href="${csv}">تصدير CSV (Excel)</a>
+          <a class="btn ghost" href="/stats/xlsx?${q}">Excel</a>
+          <a class="btn ghost" href="/stats/csv?${q}">CSV</a>
         </div>
         ${st.count ? `<div class="stat-tiles">
           <div><span>${st.first.year} → ${st.last.year}</span><b>${fmt(st.first.value)} → ${fmt(st.last.value)}</b></div>
@@ -131,7 +132,7 @@
           const other = p.other_values.length ? `<div class="hint warn">قيم أخرى: ${p.other_values.map((o) => `${fmt(o.value)} (تقرير ${o.report_year})`).join('، ')}</div>` : '';
           const ref = p.source.ref.match(/R(\d+):p(\d+)/);
           return `<tr><td class="num">${p.year}</td><td class="num">${fmt(p.value)}</td><td class="num">${ch && ch.change_pct !== null ? (ch.change_pct > 0 ? '+' : '') + fmt(ch.change_pct) + '%' : '—'}</td>
-            <td><a class="cite" href="/source?report=${ref[1]}&page=${ref[2]}" target="_blank">${p.source.report_year} · ص ${p.source.page}</a>${p.source.verified ? '' : ' <span class="hint warn" title="لم يتم العثور على الرقم حرفياً في الصفحة">⚠ للتحقق</span>'}
+            <td><a class="cite" href="/source?report=${ref[1]}&page=${ref[2]}" target="_blank">${p.source.report_year} · ${esc(p.source.label)}</a>${p.source.verified ? '' : ' <span class="hint warn" title="لم يتم العثور على الرقم حرفياً في الصفحة">⚠ للتحقق</span>'}
             <div class="hint" dir="auto">${esc(p.source.quote)}</div>${other}</td></tr>`;
         }).join('')}
         </tbody></table></div>`;

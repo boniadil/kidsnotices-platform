@@ -51,7 +51,7 @@ final class Claude
         $response = $this->call($system, $messages, ['effort' => $effort, 'format' => ['type' => 'json_schema', 'schema' => $schema]], $maxTokens);
         $data = json_decode(self::text($response), true);
         if (!is_array($data)) {
-            throw new UserError('The AI returned an unreadable answer. Please retry.');
+            throw new UserError('أعاد الذكاء الاصطناعي جواباً غير مقروء. حاول من جديد.');
         }
         return $data;
     }
@@ -100,25 +100,25 @@ final class Claude
             $response = $accumulator->message();
         } catch (RateLimitException $e) {
             self::log($e);
-            throw new UserError('The AI service is busy. Please retry in a moment.');
+            throw new UserError('خدمة الذكاء الاصطناعي مشغولة حالياً. حاول بعد لحظات.');
         } catch (AuthenticationException | PermissionDeniedException $e) {
             self::log($e);
-            throw new UserError('The AI service is not configured correctly (ANTHROPIC_API_KEY).');
+            throw new UserError('خدمة الذكاء الاصطناعي غير مضبوطة (تحقق من ANTHROPIC_API_KEY).');
         } catch (APIStatusException $e) {
             self::log($e);
-            throw new UserError('The AI provider returned an error. Please retry later.');
+            throw new UserError('أرجع مزوّد الذكاء الاصطناعي خطأً. حاول لاحقاً.');
         } catch (APIConnectionException $e) {
             self::log($e);
-            throw new UserError('The AI provider could not be reached. Please retry later.');
+            throw new UserError('تعذّر الاتصال بمزوّد الذكاء الاصطناعي. حاول لاحقاً.');
         }
 
         $this->recordUsage($response);
 
         if ($response->stopReason === 'refusal') {
-            throw new UserError('The AI declined this request. Please rephrase it.');
+            throw new UserError('رفض الذكاء الاصطناعي هذا الطلب. أعد صياغته.');
         }
         if ($response->stopReason === 'max_tokens') {
-            throw new UserError('The answer was too long and got cut off. Try a narrower request.');
+            throw new UserError('الجواب طويل جداً وانقطع. جرّب طلباً أضيق.');
         }
         return $response;
     }

@@ -15,6 +15,19 @@ use PhpOffice\PhpWord\SimpleType\Jc;
  */
 final class Docx
 {
+    /** [R3:p12] → (تقرير 2021، ص 12) / (rapport 2021, ص 12) — the unit label comes from the source file. */
+    public static function citations(string $s, bool $rtl): string
+    {
+        return preg_replace_callback('/\[((?:R\d+:p\d+)(?:\s*[,;،]\s*R\d+:p\d+)*)\]/u', function ($m) use ($rtl) {
+            preg_match_all('/R(\d+):p(\d+)/', $m[1], $refs, PREG_SET_ORDER);
+            $parts = array_map(function ($r) use ($rtl) {
+                [$year, $unit] = explode(' · ', Search::refLabel((int) $r[1], (int) $r[2]), 2) + [1 => ''];
+                return ($rtl ? 'تقرير ' : 'rapport ') . $year . ($rtl ? '، ' : ', ') . $unit;
+            }, $refs);
+            return '(' . implode($rtl ? '؛ ' : '; ', $parts) . ')';
+        }, $s);
+    }
+
     public static function build(string $markdown, string $language): string
     {
         $rtl = $language === 'ar';
@@ -29,12 +42,7 @@ final class Docx
             $word->addTitleStyle($level, $text + ['size' => $size, 'bold' => true, 'color' => '1A3D7C'], $para + ['spaceBefore' => 240]);
         }
 
-        $years = array_column(Database::pdo()->query('SELECT id, year FROM reports')->fetchAll(), 'year', 'id');
-        $cite = fn (string $s) => preg_replace_callback('/\[((?:R\d+:p\d+)(?:\s*[,;،]\s*R\d+:p\d+)*)\]/u', function ($m) use ($years, $rtl) {
-            preg_match_all('/R(\d+):p(\d+)/', $m[1], $refs, PREG_SET_ORDER);
-            $parts = array_map(fn ($r) => $rtl ? 'تقرير ' . ($years[$r[1]] ?? '?') . '، ص ' . $r[2] : 'rapport ' . ($years[$r[1]] ?? '?') . ', p. ' . $r[2], $refs);
-            return '(' . implode($rtl ? '؛ ' : '; ', $parts) . ')';
-        }, $s);
+        $cite = fn (string $s) => self::citations($s, $rtl);
         $addRuns = function ($container, string $s) use ($cite, $text) {
             foreach (preg_split('/(\*\*.+?\*\*)/u', $cite($s), -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) as $part) {
                 $bold = str_starts_with($part, '**') && str_ends_with($part, '**');

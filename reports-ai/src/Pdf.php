@@ -19,7 +19,7 @@ final class Pdf
     {
         $out = self::run([self::which('pdfinfo') ?? 'pdfinfo', $file]);
         if (!preg_match('/^Pages:\s+(\d+)/m', $out, $m)) {
-            throw new UserError('This file is not a readable PDF.');
+            throw new UserError('هذا الملف ليس PDF مقروءاً.');
         }
         return (int) $m[1];
     }
@@ -38,7 +38,7 @@ final class Pdf
         $out = stream_get_contents($pipes[1]);
         $err = stream_get_contents($pipes[2]);
         if (proc_close($proc) !== 0) {
-            throw new UserError('PDF reading failed: ' . trim(mb_substr($err, 0, 200)));
+            throw new UserError('تعذّرت قراءة PDF: ' . trim(mb_substr($err, 0, 200)));
         }
         return (string) $out;
     }

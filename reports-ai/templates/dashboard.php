@@ -21,12 +21,12 @@ $busy = array_filter($reports, fn ($r) => !in_array($r['status'], ['ready', 'err
   <h2>إضافة تقرير سنوي</h2>
   <form method="post" action="/upload" enctype="multipart/form-data" class="form inline">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label class="grow">ملف PDF<input type="file" name="pdf" accept="application/pdf" required></label>
+    <label class="grow">ملف التقرير<input type="file" name="file" accept=".pdf,.docx,.doc,.odt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp" required></label>
     <label>السنة<input type="number" name="year" min="1950" max="2100" required placeholder="2024"></label>
     <label class="grow">العنوان (اختياري)<input name="title" placeholder="التقرير السنوي لأنشطة الوكالة 2024"></label>
     <button class="btn primary">إضافة ومعالجة</button>
   </form>
-  <p class="hint">تُقرأ كل صفحة، ثم يستخرج الذكاء الاصطناعي الأرقام ويربطها بالمؤشرات الموجودة من السنوات الأخرى. تستغرق المعالجة بضع دقائق لكل تقرير.</p>
+  <p class="hint">الصيغ المقبولة: <b>PDF</b> (نصي)، <b>Word</b> (‎.docx ‎.doc)، <b>Excel</b> (‎.xlsx ‎.xls ‎.csv)، <b>PowerPoint</b> (‎.pptx ‎.ppt). تُقرأ كل صفحة أو ورقة أو شريحة، ثم يستخرج الذكاء الاصطناعي الأرقام ويربطها بالمؤشرات الموجودة من السنوات الأخرى. تستغرق المعالجة بضع دقائق لكل ملف.</p>
 </section>
 <?php endif; ?>
 
@@ -36,14 +36,14 @@ $busy = array_filter($reports, fn ($r) => !in_array($r['status'], ['ready', 'err
     <p class="muted">لا توجد تقارير بعد.<?= Auth::isAdmin() ? ' أضف أول تقرير من الأعلى.' : ' اطلب من المسؤول إضافتها.' ?></p>
   <?php else: ?>
   <div class="table-wrap"><table id="reports" data-busy="<?= $busy ? '1' : '0' ?>">
-    <thead><tr><th>السنة</th><th>العنوان</th><th class="hide-sm">اللغة</th><th class="hide-sm">الصفحات</th><th>الحالة</th><?php if (Auth::isAdmin()): ?><th></th><?php endif; ?></tr></thead>
+    <thead><tr><th>السنة</th><th>العنوان</th><th class="hide-sm">اللغة</th><th class="hide-sm">الأجزاء</th><th>الحالة</th><?php if (Auth::isAdmin()): ?><th></th><?php endif; ?></tr></thead>
     <tbody>
     <?php foreach ($reports as $r): ?>
       <tr data-id="<?= (int) $r['id'] ?>">
         <td class="num"><?= (int) $r['year'] ?></td>
-        <td dir="auto"><?= $e($r['title']) ?><?php if ($r['summary']): ?><details><summary>ملخص</summary><p dir="auto"><?= $e($r['summary']) ?></p></details><?php endif; ?></td>
+        <td dir="auto"><span class="ftype <?= $e($r['kind']) ?>"><?= $e(['pdf' => 'PDF', 'word' => 'Word', 'excel' => 'Excel', 'powerpoint' => 'PPT'][$r['kind']] ?? $r['kind']) ?></span> <?= $e($r['title']) ?><?php if ($r['summary']): ?><details><summary>ملخص</summary><p dir="auto"><?= $e($r['summary']) ?></p></details><?php endif; ?></td>
         <td class="hide-sm"><?= $e(['ar' => 'العربية', 'fr' => 'الفرنسية', 'mixed' => 'مزدوجة'][$r['language']] ?? '—') ?></td>
-        <td class="num hide-sm"><?= (int) $r['pages'] ?: '—' ?></td>
+        <td class="num hide-sm"><?= (int) $r['pages'] ?: '—' ?><?= $r['kind'] === 'excel' ? ' <small class="muted">أوراق</small>' : ($r['kind'] === 'powerpoint' ? ' <small class="muted">شرائح</small>' : '') ?></td>
         <td class="status">
           <span class="badge <?= $e($r['status']) ?>"><?= $e(View::statusLabel($r['status'])) ?></span>
           <?php if (!in_array($r['status'], ['ready', 'error'], true)): ?><progress max="100" value="<?= (int) $r['progress'] ?>"></progress><?php endif; ?>
@@ -71,7 +71,7 @@ $busy = array_filter($reports, fn ($r) => !in_array($r['status'], ['ready', 'err
     <thead><tr><th>المهمة</th><th>الطلبات</th><th>الكلفة</th></tr></thead>
     <tbody>
     <?php foreach ($cost as $c): ?>
-      <tr><td><?= $e(['extract' => 'استخراج الأرقام', 'map' => 'توحيد المؤشرات', 'ask' => 'الأسئلة', 'report' => 'تحرير التقارير', 'repair' => 'تصحيح النص العربي'][$c['task']] ?? $c['task']) ?></td><td class="num"><?= (int) $c['calls'] ?></td><td class="num">$<?= number_format((float) $c['cost'], 3) ?></td></tr>
+      <tr><td><?= $e(['extract' => 'استخراج الأرقام', 'map' => 'توحيد المؤشرات', 'ask' => 'الأسئلة', 'report' => 'تحرير التقارير', 'repair' => 'تصحيح النص العربي', 'slides' => 'عروض PowerPoint'][$c['task']] ?? $c['task']) ?></td><td class="num"><?= (int) $c['calls'] ?></td><td class="num">$<?= number_format((float) $c['cost'], 3) ?></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table></div>

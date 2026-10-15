@@ -64,6 +64,8 @@ td details p { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; }
 .badge.error { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
 .status progress { display: block; width: 120px; margin-top: 6px; }
 .err { color: var(--err); font-size: 13px; }
+.ftype { display: inline-block; font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 4px; color: #fff; background: #c43c3c; vertical-align: 1px; }
+.ftype.word { background: #2b579a; } .ftype.excel { background: #217346; } .ftype.powerpoint { background: #c55a11; }
 
 .login { max-width: 380px; margin: 12vh auto 0; text-align: center; } .login .card { text-align: start; margin-top: 18px; }
 

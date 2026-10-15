@@ -57,7 +57,7 @@ final class Auth
     {
         $token = $_POST['csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
         if (!is_string($token) || !hash_equals(self::csrf(), $token)) {
-            throw new UserError('Session expired. Reload the page and try again.');
+            throw new UserError('انتهت صلاحية الجلسة. أعد تحميل الصفحة وحاول من جديد.');
         }
     }
 

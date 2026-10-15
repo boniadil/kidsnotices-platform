@@ -16,9 +16,10 @@ final class Search
         if ($match === null) {
             return [];
         }
-        $sql = 'SELECT c.report_id, c.page_no, c.text, r.year, r.title
+        $sql = "SELECT c.report_id, c.page_no, c.text, r.year, r.title, COALESCE(NULLIF(p.label, ''), 'ص ' || c.page_no) AS label
                 FROM chunks_fts f JOIN chunks c ON c.id = f.chunk_id JOIN reports r ON r.id = c.report_id
-                WHERE chunks_fts MATCH ?';
+                LEFT JOIN pages p ON p.report_id = c.report_id AND p.page_no = c.page_no
+                WHERE chunks_fts MATCH ?";
         $params = [$match];
         if ($yearFrom !== null) {
             $sql .= ' AND r.year >= ?';
@@ -37,6 +38,7 @@ final class Search
             'year' => (int) $r['year'],
             'title' => $r['title'],
             'page' => (int) $r['page_no'],
+            'label' => $r['label'],
             'text' => $r['text'],
         ], $stmt->fetchAll());
     }
@@ -77,5 +79,18 @@ final class Search
     public static function ref(int $reportId, int $page): string
     {
         return "R{$reportId}:p{$page}";
+    }
+
+    /** "2021 · ص 12", "2015 · ورقة «Permis»", "2019 · شريحة 4" — for citations. */
+    public static function refLabel(int $reportId, int $page): string
+    {
+        static $cache = [];
+        if (!isset($cache["$reportId:$page"])) {
+            $stmt = Database::pdo()->prepare("SELECT r.year, COALESCE(NULLIF(p.label, ''), 'ص ' || ?) FROM reports r LEFT JOIN pages p ON p.report_id = r.id AND p.page_no = ? WHERE r.id = ?");
+            $stmt->execute([$page, $page, $reportId]);
+            $row = $stmt->fetch(\PDO::FETCH_NUM);
+            $cache["$reportId:$page"] = $row ? "{$row[0]} · {$row[1]}" : "? · $page";
+        }
+        return $cache["$reportId:$page"];
     }
 }

@@ -13,6 +13,8 @@ use ReportsAI\Assistant;
 use ReportsAI\Auth;
 use ReportsAI\Database;
 use ReportsAI\Docx;
+use ReportsAI\Excel;
+use ReportsAI\Slides;
 use ReportsAI\Ingest;
 use ReportsAI\Markdown;
 use ReportsAI\ReportWriter;
@@ -150,7 +152,7 @@ try {
         Assistant::ask('__REFUSE__');
         check('refusal reported', false);
     } catch (UserError $e) {
-        check('refusal reported as a clear error', str_contains($e->getMessage(), 'declined'));
+        check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
     }
 
     echo "Report writing\n";
@@ -176,7 +178,7 @@ try {
     $sid = Ingest::register($copy, 'scanned.pdf', 2010, '');
     Worker::runOnce();
     $sc = Database::pdo()->query("SELECT status, error FROM reports WHERE id = $sid")->fetch();
-    check('scanned PDF detected with a clear message', $sc['status'] === 'error' && str_contains($sc['error'], 'scanned'), $sc);
+    check('scanned PDF detected with a clear message', $sc['status'] === 'error' && str_contains($sc['error'], 'ممسوح'), $sc);
     $copy = tempnam($tmp, 'up');
     file_put_contents($copy, 'not a pdf');
     try {
@@ -189,6 +191,109 @@ try {
     Ingest::delete($rid);
     check('deleting a report removes its figures', array_column(Stats::series($perm[0]['id'])['points'], 'year') === [2021, 2022, 2023]);
     check('deleting removes its passages from search', Search::passages('infractions urbanisme', 2024, 2024) === []);
+
+    echo "Word, Excel, PowerPoint\n";
+    // Fixtures written with the same libraries an administration's files come from.
+    $word = new \PhpOffice\PhpWord\PhpWord();
+    $sec = $word->addSection();
+    $sec->addText('التقرير السنوي لأنشطة الوكالة برسم سنة 2019');
+    $sec->addPageBreak();
+    $sec->addText('بلغ عدد رخص البناء المسلمة 1100 رخصة خلال السنة.');
+    $tbl = $sec->addTable();
+    $tbl->addRow();
+    $tbl->addCell(4000)->addText('مشاريع التجزئات العقارية');
+    $tbl->addCell(2000)->addText('15');
+    \PhpOffice\PhpWord\IOFactory::createWriter($word, 'Word2007')->save("$tmp/rapport-2019.docx");
+
+    $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $book->getActiveSheet()->setTitle('Permis');
+    $sheet->fromArray([['Indicateur', 'Valeur'], ['Autorisations de construire délivrées', 1180], ['Projets de lotissement', 17]]);
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save("$tmp/stats-2020.xlsx");
+
+    $ppt = new \PhpOffice\PhpPresentation\PhpPresentation();
+    $ppt->getActiveSlide()->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('حصيلة سنة 2018');
+    $s2 = $ppt->createSlide();
+    $s2->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('عدد رخص البناء المسلمة 990');
+    $t2 = $s2->createTableShape(2)->setWidth(600);
+    $row = $t2->createRow();
+    $row->nextCell()->createTextRun('مشاريع التجهيزات العمومية');
+    $row->nextCell()->createTextRun('39');
+    \PhpOffice\PhpPresentation\IOFactory::createWriter($ppt, 'PowerPoint2007')->save("$tmp/bilan-2018.pptx");
+
+    foreach (['rapport-2019.docx' => 2019, 'stats-2020.xlsx' => 2020, 'bilan-2018.pptx' => 2018] as $name => $year) {
+        $copy = "$tmp/upload-$name";
+        copy("$tmp/$name", $copy);
+        Ingest::register($copy, $name, $year, '');
+    }
+    $hasSoffice = is_executable('/usr/bin/soffice');
+    if ($hasSoffice) {
+        // Legacy .doc: made from a .docx with LibreOffice, read back through the same conversion.
+        $w = new \PhpOffice\PhpWord\PhpWord();
+        $w->addSection()->addText('عدد رخص البناء المسلمة 870');
+        \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save("$tmp/old.docx");
+        exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
+        Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
+    }
+    $repairsBefore = count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages'])));
+    while (Worker::runOnce()) {
+    }
+    $office = Database::pdo()->query("SELECT year, kind, status, pages, error FROM reports WHERE kind <> 'pdf' ORDER BY year")->fetchAll();
+    check('Word, Excel, PowerPoint' . ($hasSoffice ? ' and legacy .doc' : '') . ' files processed', count($office) === ($hasSoffice ? 4 : 3) && array_unique(array_column($office, 'status')) === ['ready'], $office);
+    $labels = Database::pdo()->query("SELECT r.kind, p.label FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.kind <> 'pdf' ORDER BY r.year, p.page_no")->fetchAll(\PDO::FETCH_NUM);
+    $labelsOf = fn ($kind) => array_values(array_map(fn ($l) => $l[1], array_filter($labels, fn ($l) => $l[0] === $kind && !str_starts_with($l[1], 'جزء'))));
+    check('Word split at its page breaks (ص 1, ص 2)', in_array('ص 2', $labelsOf('word'), true), $labels);
+    check('Excel read sheet by sheet', $labelsOf('excel') === ['ورقة «Permis»'], $labelsOf('excel'));
+    check('PowerPoint read slide by slide', $labelsOf('powerpoint') === ['شريحة 1', 'شريحة 2'], $labelsOf('powerpoint'));
+    $sheetText = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.kind = 'excel'")->fetchColumn();
+    check('Excel cells kept as rows "a | b"', str_contains($sheetText, 'Autorisations de construire délivrées | 1180'), $sheetText);
+    $s = Stats::series($perm[0]['id']);
+    $years = array_column($s['points'], 'value', 'year');
+    check('figures from Office files join the same indicator', ($years[2018] ?? null) === 990.0 && ($years[2019] ?? null) === 1100.0 && ($years[2020] ?? null) === 1180.0 && (!$hasSoffice || ($years[2017] ?? null) === 870.0), $years);
+    $src2020 = array_values(array_filter($s['points'], fn ($p) => $p['year'] === 2020))[0]['source'] ?? [];
+    check('sources name the sheet / slide', ($src2020['label'] ?? '') === 'ورقة «Permis»' && str_contains(Search::refLabel((int) explode(':', substr($src2020['ref'], 1))[0], 1), 'ورقة'), $src2020);
+    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === $repairsBefore);
+    $copy = "$tmp/bad.xlsx";
+    file_put_contents($copy, '%PDF-1.4 not a workbook');
+    try {
+        Ingest::register($copy, 'bad.xlsx', 2010, '');
+        check('content that does not match the extension is refused', false);
+    } catch (UserError) {
+        check('content that does not match the extension is refused', true);
+    }
+    try {
+        $copy = "$tmp/x.exe";
+        file_put_contents($copy, 'MZ');
+        Ingest::register($copy, 'x.exe', 2010, '');
+        check('unsupported type refused', false);
+    } catch (UserError) {
+        check('unsupported type refused', true);
+    }
+
+    echo "Exports\n";
+    $xlsx = Excel::series(Stats::series($perm[0]['id']));
+    file_put_contents("$tmp/series.xlsx", $xlsx);
+    $z = new ZipArchive();
+    $z->open("$tmp/series.xlsx");
+    $sheetXml = (string) $z->getFromName('xl/worksheets/sheet1.xml');
+    check('Excel export: right-to-left sheet, values and a native chart', preg_match('/rightToLeft="(1|true)"/', $sheetXml) === 1 && $z->locateName('xl/charts/chart1.xml') !== false && preg_match('#<v>1240(\.0)?</v>#', $sheetXml) === 1);
+    $all = \PhpOffice\PhpSpreadsheet\IOFactory::load((function () use ($tmp) { file_put_contents("$tmp/all.xlsx", Excel::allIndicators()); return "$tmp/all.xlsx"; })());
+    $head = $all->getSheet(0)->rangeToArray('A1:L1', null, true, false)[0];
+    $permRow = array_values(array_filter($all->getSheet(0)->toArray(null, true, false), fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
+    check('Excel export of all indicators: one column per year', in_array(2018, $head) && in_array(2023, $head) && in_array(1512, $permRow) && in_array(990, $permRow), [$head, $permRow]);
+    check('Excel export: values with sources sheet', $all->getSheet(1)->getHighestRow() > 20);
+    $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
+    $pptx = Slides::build($job);
+    file_put_contents("$tmp/deck.pptx", $pptx);
+    $z = new ZipArchive();
+    $z->open("$tmp/deck.pptx");
+    $slideFiles = array_filter(array_map(fn ($i) => $z->getNameIndex($i), range(0, $z->numFiles - 1)), fn ($n) => preg_match('#^ppt/slides/slide\d+\.xml$#', $n));
+    $s2xml = (string) $z->getFromName('ppt/slides/slide2.xml');
+    $plan = json_decode(Database::pdo()->query("SELECT slides_json FROM generated_reports WHERE id = $id")->fetchColumn(), true);
+    check('PowerPoint export: slides, right-to-left text, native chart', count($slideFiles) >= 3 && str_contains($s2xml, 'rtl="1"') && array_filter(range(0, $z->numFiles - 1), fn ($i) => str_starts_with($z->getNameIndex($i), 'ppt/charts/')), [count($slideFiles)]);
+    check('chart with a number not in the report is dropped', end($plan['slides'])['chart']['points'] === []);
+    $calls = count(requests());
+    Slides::build(Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch());
+    check('slide plan reused on the next download (no new AI call)', count(requests()) === $calls);
 
     echo "Web pages\n";
     Auth::createUser('admin', 'admin-password-1', 'admin');
@@ -225,7 +330,7 @@ try {
     $csrf = $m[1] ?? '';
     check('dashboard lists reports and counts', str_contains($body, 'قاعدة التقارير') && str_contains($body, '2023') && str_contains($body, 'إضافة تقرير سنوي'));
     [$st, , $body] = $http('GET', '/api/series?id=' . $perm[0]['id']);
-    check('series API', $st === 200 && json_decode($body, true)['stats']['first']['value'] === 1240);
+    check('series API', $st === 200 && in_array(1240, array_column(json_decode($body, true)['points'], 'value')));
     [$st, $hd, $body] = $http('GET', '/stats/csv?id=' . $perm[0]['id']);
     check('CSV export for Excel (UTF-8 BOM)', $st === 200 && str_starts_with($body, "\xEF\xBB\xBF") && str_contains($body, '1385'));
     [$st, , $body] = $http('GET', "/source?report=1&page=2");
@@ -238,6 +343,24 @@ try {
     check('ask API returns HTML answer with sources and chart data', $st === 200 && str_contains($ans['html'] ?? '', 'cite') && count($ans['series'] ?? []) === 1, [$st, mb_substr($body, 0, 200)]);
     [$st, $hd, $body] = $http('GET', "/write/download?id=$id&format=docx");
     check('Word download', $st === 200 && str_contains($hd, 'wordprocessingml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', "/write/download?id=$id&format=pptx");
+    check('PowerPoint download', $st === 200 && str_contains($hd, 'presentationml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', '/stats/xlsx?id=' . $perm[0]['id']);
+    check('Excel download (one indicator)', $st === 200 && str_contains($hd, 'spreadsheetml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', '/stats/xlsx-all');
+    check('Excel download (all indicators)', $st === 200 && str_contains($hd, 'spreadsheetml'));
+    // Upload through the page (multipart), then the background worker started by the page processes it.
+    file_put_contents("$tmp/web.csv", "Indicateur;Valeur\nProjets de lotissement;12\n");
+    $ch = curl_init("$base/upload");
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $jar, CURLOPT_COOKIEJAR => $jar,
+        CURLOPT_POSTFIELDS => ['csrf' => $csrf, 'year' => '2016', 'title' => '', 'file' => new CURLFile("$tmp/web.csv", 'text/csv', 'stats-2016.csv')]]);
+    curl_exec($ch);
+    curl_close($ch);
+    for ($i = 0, $st16 = null; $i < 60 && $st16 !== 'ready' && $st16 !== 'error'; $i++) {
+        usleep(250_000);
+        $st16 = Database::pdo()->query("SELECT status FROM reports WHERE year = 2016")->fetchColumn();
+    }
+    check('CSV uploaded from the page and processed in the background', $st16 === 'ready', $st16);
     $http('POST', '/logout', ['csrf' => $csrf]);
     [, , $body] = $http('GET', '/login');
     preg_match('/name="csrf" value="([a-f0-9]+)"/', $body, $m);

@@ -7,6 +7,7 @@
   <?php if ($job['status'] === 'ready'): ?>
   <div class="actions">
     <a class="btn primary" href="/write/download?id=<?= (int) $job['id'] ?>&format=docx">تنزيل Word</a>
+    <a class="btn ghost" href="/write/download?id=<?= (int) $job['id'] ?>&format=pptx" title="يُنشأ العرض عند أول تنزيل (بضع ثوانٍ)">عرض PowerPoint</a>
     <a class="btn ghost" href="/write/download?id=<?= (int) $job['id'] ?>&format=md">Markdown</a>
   </div>
   <?php endif; ?>

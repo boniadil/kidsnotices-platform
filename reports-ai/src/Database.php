@@ -123,6 +123,18 @@ CREATE TABLE IF NOT EXISTS usage_log (
     cost_usd REAL NOT NULL
 );
 SQL);
+        // Columns added after the first version.
+        self::addColumn($pdo, 'reports', 'kind', "TEXT NOT NULL DEFAULT 'pdf'");
+        self::addColumn($pdo, 'pages', 'label', "TEXT NOT NULL DEFAULT ''");
+        self::addColumn($pdo, 'generated_reports', 'slides_json', 'TEXT NULL');
+    }
+
+    private static function addColumn(PDO $pdo, string $table, string $column, string $definition): void
+    {
+        $columns = array_column($pdo->query("PRAGMA table_info($table)")->fetchAll(), 'name');
+        if (!in_array($column, $columns, true)) {
+            $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+        }
     }
 
     public static function now(): string

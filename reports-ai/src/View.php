@@ -9,8 +9,6 @@ namespace ReportsAI;
  */
 final class View
 {
-    private static ?array $reportYears = null;
-
     public static function render(string $template, array $data): never
     {
         $flash = $_SESSION['rai_flash'] ?? null;
@@ -37,6 +35,15 @@ final class View
         exit;
     }
 
+    public static function download(string $bytes, string $filename, string $type): never
+    {
+        header("Content-Type: $type");
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($bytes));
+        echo $bytes;
+        exit;
+    }
+
     public static function redirect(string $url): never
     {
         header('Location: ' . $url, true, 303);
@@ -53,11 +60,10 @@ final class View
         return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     }
 
-    /** "تقرير 2021 · ص 12" for a citation reference. */
+    /** "2021 · ص 12" / "2015 · ورقة «Permis»" for a citation reference. */
     public static function refLabel(int $reportId, int $page): string
     {
-        self::$reportYears ??= array_column(Database::pdo()->query('SELECT id, year FROM reports')->fetchAll(), 'year', 'id');
-        return (self::$reportYears[$reportId] ?? '?') . ' · ص ' . $page;
+        return Search::refLabel($reportId, $page);
     }
 
     /** Compact series for the charts in the browser. */

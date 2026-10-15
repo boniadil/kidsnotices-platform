@@ -181,6 +181,31 @@ if (str_contains($last, '__REFUSE__')) {
         }
     }
     $blocks[] = ['type' => 'text', 'text' => json_encode(['pages' => $pages], JSON_UNESCAPED_UNICODE)];
+} elseif ($schema && isset($schema['properties']['slides'])) {
+    // Slide plan from the report markdown: title slide, one slide per "## " section, a chart from the table.
+    preg_match('#<report>\s*(.*?)\s*</report>#s', $last, $r);
+    $md = $r[1] ?? '';
+    $empty = ['table' => ['headers' => [], 'rows' => []], 'chart' => ['title' => '', 'unit' => '', 'points' => []], 'notes' => ''];
+    preg_match('/^# (.+)$/m', $md, $t);
+    $slides = [['title' => $t[1] ?? 'Report', 'bullets' => ['2025']] + $empty];
+    foreach (preg_split('/^## /m', $md) as $k => $section) {
+        if ($k === 0) {
+            continue;
+        }
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $section))));
+        $bullets = array_values(array_filter(array_slice($lines, 1), fn ($l) => $l[0] !== '|'));
+        preg_match_all('/^\|\s*(\d{4})\s*\|\s*([\d.]+)/m', $section, $rows, PREG_SET_ORDER);
+        $slide = ['title' => $lines[0], 'bullets' => array_map(fn ($b) => ltrim($b, '- '), $bullets)] + $empty;
+        if ($rows) {
+            $slide['chart'] = ['title' => $lines[0], 'unit' => '', 'points' => array_map(fn ($m) => ['year' => (int) $m[1], 'value' => (float) $m[2]], $rows)];
+            $slide['table'] = ['headers' => ['السنة', 'القيمة'], 'rows' => array_map(fn ($m) => [$m[1], $m[2]], $rows)];
+            $slide['notes'] = 'المصدر [R1:p2]';
+        }
+        $slides[] = $slide;
+    }
+    // A chart with a number that is not in the report: the app must drop it.
+    $slides[] = ['title' => 'Invented', 'bullets' => ['x']] + array_merge($empty, ['chart' => ['title' => 'x', 'unit' => '', 'points' => [['year' => 2020, 'value' => 999999], ['year' => 2021, 'value' => 1]]]]);
+    $blocks[] = ['type' => 'text', 'text' => json_encode(['slides' => $slides], JSON_UNESCAPED_UNICODE)];
 } elseif ($schema && isset($schema['properties']['mappings'])) {
     preg_match('#<catalogue>\s*(.*?)\s*</catalogue>#s', $last, $c);
     preg_match('#<new_names>\s*(.*?)\s*</new_names>#s', $last, $n);

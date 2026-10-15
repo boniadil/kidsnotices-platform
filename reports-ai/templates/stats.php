@@ -1,7 +1,10 @@
 <?php $pageTitle = 'الإحصائيات'; ?>
-<section class="head">
-  <h1>الإحصائيات عبر السنوات</h1>
-  <p class="muted">كل مؤشر موحَّد بين السنوات واللغتين، مع مصدر كل قيمة. صدّر أي سلسلة إلى Excel (CSV).</p>
+<section class="head row">
+  <div>
+    <h1>الإحصائيات عبر السنوات</h1>
+    <p class="muted">كل مؤشر موحَّد بين السنوات واللغتين، مع مصدر كل قيمة. صدّر أي سلسلة، أو كل المؤشرات دفعة واحدة، إلى Excel.</p>
+  </div>
+  <a class="btn ghost" href="/stats/xlsx-all">تصدير كل المؤشرات إلى Excel</a>
 </section>
 
 <div class="stats-layout">

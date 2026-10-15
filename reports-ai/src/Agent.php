@@ -37,6 +37,6 @@ final class Agent
             $messages[] = ['role' => 'assistant', 'content' => $response->content];
             $messages[] = ['role' => 'user', 'content' => $results];
         }
-        throw new UserError('The question needed too many steps. Please make it more specific.');
+        throw new UserError('احتاج السؤال إلى خطوات كثيرة. اجعله أكثر تحديداً.');
     }
 }

@@ -11,6 +11,8 @@ use ReportsAI\Auth;
 use ReportsAI\Config;
 use ReportsAI\Database;
 use ReportsAI\Docx;
+use ReportsAI\Excel;
+use ReportsAI\Slides;
 use ReportsAI\Ingest;
 use ReportsAI\Markdown;
 use ReportsAI\ReportWriter;
@@ -80,7 +82,7 @@ try {
 
         case 'POST /upload':
             $adminOnly();
-            $file = $_FILES['pdf'] ?? null;
+            $file = $_FILES['file'] ?? null;
             $max = (int) Config::get('RAI_MAX_UPLOAD_MB', '60') * 1024 * 1024;
             if (!$file || $file['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
                 throw new UserError('لم يتم رفع الملف. تحقق من حجمه (الحد: ' . ($max >> 20) . ' ميغابايت).');
@@ -92,7 +94,7 @@ try {
             if ($file['size'] > $max) {
                 throw new UserError('الملف أكبر من الحد المسموح.');
             }
-            Ingest::register($file['tmp_name'], $file['name'], $year, $str('title'));
+            Ingest::register($file['tmp_name'], basename((string) $file['name']), $year, $str('title'));
             Worker::kick();
             View::flash('تمت إضافة التقرير، وتجري معالجته الآن.');
             View::redirect('/');
@@ -113,7 +115,7 @@ try {
             View::json(Database::pdo()->query('SELECT id, status, progress, error, pages, language FROM reports')->fetchAll());
 
         case 'GET /source':
-            $stmt = Database::pdo()->prepare('SELECT r.id, r.title, r.year, r.pages, p.page_no, p.text FROM reports r JOIN pages p ON p.report_id = r.id WHERE r.id = ? AND p.page_no = ?');
+            $stmt = Database::pdo()->prepare('SELECT r.id, r.title, r.year, r.pages, p.page_no, p.label, p.text FROM reports r JOIN pages p ON p.report_id = r.id WHERE r.id = ? AND p.page_no = ?');
             $stmt->execute([$int('report'), $int('page')]);
             View::render('source', ['page' => $stmt->fetch() ?: throw new UserError('الصفحة غير موجودة.'), 'highlight' => $str('q')]);
 
@@ -167,6 +169,14 @@ try {
         case 'GET /api/series':
             View::json(Stats::series((int) $int('id'), $int('from'), $int('to'), $str('scope')));
 
+        case 'GET /stats/xlsx':
+            $s = Stats::series((int) $int('id'), $int('from'), $int('to'), $str('scope'));
+            View::download(Excel::series($s), 'indicator-' . $s['indicator']['id'] . '.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+        case 'GET /stats/xlsx-all':
+            set_time_limit(300);
+            View::download(Excel::allIndicators(), 'indicators-' . date('Y-m-d') . '.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
         case 'GET /stats/csv':
             $s = Stats::series((int) $int('id'), $int('from'), $int('to'), $str('scope'));
             header('Content-Type: text/csv; charset=utf-8');
@@ -216,6 +226,10 @@ try {
             $stmt->execute([$int('id')]);
             $job = $stmt->fetch() ?: throw new UserError('التقرير غير جاهز.');
             $name = 'report-' . $job['id'];
+            if ($str('format') === 'pptx') {
+                set_time_limit(300);
+                View::download(Slides::build($job), "$name.pptx", 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+            }
             if ($str('format') === 'md') {
                 header('Content-Type: text/markdown; charset=utf-8');
                 header("Content-Disposition: attachment; filename=\"$name.md\"");
