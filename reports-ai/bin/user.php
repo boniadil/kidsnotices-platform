@@ -15,7 +15,7 @@ if (PHP_SAPI !== 'cli' || !isset($argv[1])) {
     fwrite(STDERR, "Usage: php bin/user.php <username> [admin|user]\n");
     exit(1);
 }
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/src/autoload.php';
 Config::loadEnvFile(dirname(__DIR__) . '/.env');
 
 echo 'Password (min 10 characters): ';

@@ -2,7 +2,8 @@
 
 /*
  * End-to-end tests against the fake Claude server (tests/mock_claude.php) — no API key, no cost.
- *   php tests/run.php
+ *   php tests/run.php            all tasks on Claude
+ *   php tests/run.php --local    all tasks on a local Ollama model (tests/mock_ollama.php), slides on Claude
  * Ingests the four fictitious sample reports (2 Arabic, 2 French), then checks search, statistics,
  * the question assistant, report writing, Word export, error handling and the web pages.
  */
@@ -25,7 +26,7 @@ use ReportsAI\UserError;
 use ReportsAI\Worker;
 
 $root = dirname(__DIR__);
-require "$root/vendor/autoload.php";
+require "$root/src/autoload.php";
 
 $tmp = sys_get_temp_dir() . '/rai-tests-' . bin2hex(random_bytes(4));
 mkdir($tmp, 0700, true);
@@ -37,6 +38,11 @@ $env = [
     'RAI_MODEL_MAP' => 'claude-sonnet-5-5',
     'MOCK_LOG_DIR' => $tmp,
 ];
+
+$local = in_array('--local', $argv, true);
+if ($local) {
+    $env += ['RAI_PROVIDER' => 'local', 'RAI_PROVIDER_SLIDES' => 'anthropic', 'RAI_LOCAL_MODEL' => 'qwen3.5:4b', 'RAI_LOCAL_MODEL_EXTRACT' => 'qwen2.5:3b', 'RAI_LOCAL_KEY' => 'test-key'];
+}
 
 $procs = [];
 $freePort = function (): int {
@@ -54,6 +60,11 @@ $serve = function (string $docroot, string $router, int $port, array $extraEnv =
 $mockPort = $freePort();
 $serve("$root/tests", "$root/tests/mock_claude.php", $mockPort);
 $env['ANTHROPIC_BASE_URL'] = "http://127.0.0.1:$mockPort";
+if ($local) {
+    $ollamaPort = $freePort();
+    $serve("$root/tests", "$root/tests/mock_ollama.php", $ollamaPort);
+    $env['RAI_LOCAL_URL'] = "http://127.0.0.1:$ollamaPort";
+}
 foreach ($env as $k => $v) {
     putenv("$k=$v");
 }
@@ -70,6 +81,16 @@ function requests(): array
     global $tmp;
     return array_map(fn ($l) => json_decode($l, true), file("$tmp/requests.jsonl", FILE_IGNORE_NEW_LINES) ?: []);
 }
+/** Structured-output schema of a logged request (Claude or Ollama). */
+function schemaOf(array $q): ?array
+{
+    return $q['body']['output_config']['format']['schema'] ?? $q['body']['format'] ?? null;
+}
+function systemOf(array $q): string
+{
+    return (string) ($q['body']['system'] ?? (($q['body']['messages'][0]['role'] ?? '') === 'system' ? $q['body']['messages'][0]['content'] : ''));
+}
+echo $local ? "Mode: local model (Ollama), slides on Claude\n" : "Mode: Claude\n";
 
 try {
     echo "Text normalization\n";
@@ -121,7 +142,7 @@ try {
     $p3 = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.year = 2021 AND p.page_no = 3")->fetchColumn();
     check('Arabic lam-alef repaired in stored text', str_contains($p1, 'خلال سنة') && str_contains($p1, 'الاستثمار') && !str_contains($p1, 'خالل'), mb_substr($p1, 0, 160));
     check('a repair that changed other text was rejected', !str_contains($p3, 'مزورة'), mb_substr($p3, 0, 120));
-    check('French reports are not sent for repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === 2);
+    check('French reports are not sent for repair', count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages']))) === 2);
 
     echo "Search\n";
     $hits = Search::passages('مخالفات التعمير');
@@ -136,23 +157,49 @@ try {
     $before = count(requests());
     $r = Assistant::ask('كم عدد رخص البناء المسلمة كل سنة؟');
     $calls = array_slice(requests(), $before);
-    check('tool loop ran (find → series → search → answer)', count($calls) === 4, count($calls));
+    check('tool loop ran (list → find → series → search → answer)', count($calls) === 5, count($calls));
     check('thinking blocks and tool results passed back correctly', true); // the mock rejects the request otherwise
     check('answer cites sources', str_contains($r['answer'], '[R') && count($r['sources']) === 4, $r['sources']);
     check('series returned for the chart', ($r['series'][0]['points'][3]['value'] ?? null) === 1468.0);
-    check('fallbacks + beta header on Opus', ($calls[0]['body']['fallbacks'] ?? null) === 'default' && str_contains($calls[0]['headers']['anthropic-beta'] ?? '', 'server-side-fallback'));
-    check('tools stream their input', ($calls[0]['body']['tools'][0]['eager_input_streaming'] ?? null) === true);
+    if ($local) {
+        check('local model: tool turns sent in Ollama format', array_unique(array_column($calls, 'api')) === ['ollama'] && ($calls[4]['body']['messages'][4]['tool_calls'][0]['function']['name'] ?? '') === 'find_indicators' && ($calls[4]['body']['messages'][5]['role'] ?? '') === 'tool');
+        check('local model: gateway key, streaming and context size sent', ($calls[0]['headers']['authorization'] ?? '') === 'Bearer test-key' && $calls[0]['body']['stream'] === true && $calls[0]['body']['options']['num_ctx'] === 16384 && !array_key_exists('think', $calls[0]['body']));
+    } else {
+        check('fallbacks + beta header on Opus', ($calls[0]['body']['fallbacks'] ?? null) === 'default' && str_contains($calls[0]['headers']['anthropic-beta'] ?? '', 'server-side-fallback'));
+        check('tools stream their input', ($calls[0]['body']['tools'][0]['eager_input_streaming'] ?? null) === true);
+    }
     $html = Markdown::toHtml($r['answer'], fn ($id, $p) => "$id/$p");
     check('answer rendered with source links', str_contains($html, '<a class="cite" href="/source?report=') && str_contains($html, '<table>'));
-    $extract = array_values(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['facts'])));
-    check('no fallbacks sent to Haiku (extraction)', $extract && !array_key_exists('fallbacks', $extract[0]['body']) && empty($extract[0]['headers']['anthropic-beta']));
+    $extract = array_values(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['facts'])));
+    if ($local) {
+        check('local model per task (extraction on qwen2.5:3b)', $extract && $extract[0]['body']['model'] === 'qwen2.5:3b' && ($calls[0]['body']['model'] ?? '') === 'qwen3.5:4b');
+    } else {
+        check('no fallbacks sent to Haiku (extraction)', $extract && !array_key_exists('fallbacks', $extract[0]['body']) && empty($extract[0]['headers']['anthropic-beta']));
+    }
     $r2 = Assistant::ask('Et en 2024 ?', [['role' => 'assistant', 'content' => 'orphan'], ['role' => 'user', 'content' => 'q1'], ['role' => 'user', 'content' => 'q1 again'], ['role' => 'assistant', 'content' => 'a1'], ['role' => 'user', 'content' => 'dangling']]);
     check('messy history repaired into alternating turns', $r2['answer'] !== '');
-    try {
-        Assistant::ask('__REFUSE__');
-        check('refusal reported', false);
-    } catch (UserError $e) {
-        check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
+    if (!$local) {
+        $before = count(requests());
+        $r3 = Assistant::ask('__BUSY_ONCE__ كم عدد رخص البناء؟');
+        check('API busy (429): retried, then answered', $r3['answer'] !== '' && count(requests()) - $before === 6, count(requests()) - $before);
+        $error = function (string $q): string {
+            try {
+                Assistant::ask($q);
+                return '';
+            } catch (UserError $e) {
+                return $e->getMessage();
+            }
+        };
+        $before = count(requests());
+        check('error inside the stream: retried twice, then a clear message', str_contains($error('__STREAM_ERROR__'), 'مشغولة') && count(requests()) - $before === 3);
+        $before = count(requests());
+        check('wrong API key: clear message, no retry', str_contains($error('__BAD_KEY__'), 'ANTHROPIC_API_KEY') && count(requests()) - $before === 1);
+        try {
+            Assistant::ask('__REFUSE__');
+            check('refusal reported', false);
+        } catch (UserError $e) {
+            check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
+        }
     }
 
     echo "Report writing\n";
@@ -160,7 +207,8 @@ try {
     Worker::runOnce();
     $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
     check('annual report written', $job['status'] === 'ready' && str_contains($job['markdown'], '# تقرير') && str_contains($job['markdown'], '[new data]'), [$job['status'], $job['error']]);
-    $sys = array_values(array_filter(requests(), fn ($q) => str_contains((string) ($q['body']['system'] ?? ''), 'You write official reports')))[0]['body']['system'] ?? '';
+    $sys = array_values(array_filter(requests(), fn ($q) => str_contains(systemOf($q), 'You write official reports')))[0] ?? [];
+    $sys = $sys ? systemOf($sys) : '';
     check('writer receives the structure of the latest report', str_contains($sys, 'دراسة طلبات رخص البناء') && str_contains($sys, 'مواكبة الاستثمار'), mb_substr($sys, 0, 300));
     $docx = Docx::build($job['markdown'], 'ar');
     $zipFile = "$tmp/test.docx";
@@ -193,48 +241,21 @@ try {
     check('deleting removes its passages from search', Search::passages('infractions urbanisme', 2024, 2024) === []);
 
     echo "Word, Excel, PowerPoint\n";
-    // Fixtures written with the same libraries an administration's files come from.
-    $word = new \PhpOffice\PhpWord\PhpWord();
-    $sec = $word->addSection();
-    $sec->addText('التقرير السنوي لأنشطة الوكالة برسم سنة 2019');
-    $sec->addPageBreak();
-    $sec->addText('بلغ عدد رخص البناء المسلمة 1100 رخصة خلال السنة.');
-    $tbl = $sec->addTable();
-    $tbl->addRow();
-    $tbl->addCell(4000)->addText('مشاريع التجزئات العقارية');
-    $tbl->addCell(2000)->addText('15');
-    \PhpOffice\PhpWord\IOFactory::createWriter($word, 'Word2007')->save("$tmp/rapport-2019.docx");
-
-    $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-    $sheet = $book->getActiveSheet()->setTitle('Permis');
-    $sheet->fromArray([['Indicateur', 'Valeur'], ['Autorisations de construire délivrées', 1180], ['Projets de lotissement', 17]]);
-    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save("$tmp/stats-2020.xlsx");
-
-    $ppt = new \PhpOffice\PhpPresentation\PhpPresentation();
-    $ppt->getActiveSlide()->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('حصيلة سنة 2018');
-    $s2 = $ppt->createSlide();
-    $s2->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('عدد رخص البناء المسلمة 990');
-    $t2 = $s2->createTableShape(2)->setWidth(600);
-    $row = $t2->createRow();
-    $row->nextCell()->createTextRun('مشاريع التجهيزات العمومية');
-    $row->nextCell()->createTextRun('39');
-    \PhpOffice\PhpPresentation\IOFactory::createWriter($ppt, 'PowerPoint2007')->save("$tmp/bilan-2018.pptx");
-
+    // Fixtures made by other programs (PhpOffice libraries, LibreOffice): tests/fixtures/.
     foreach (['rapport-2019.docx' => 2019, 'stats-2020.xlsx' => 2020, 'bilan-2018.pptx' => 2018] as $name => $year) {
         $copy = "$tmp/upload-$name";
-        copy("$tmp/$name", $copy);
+        copy("$root/tests/fixtures/$name", $copy);
         Ingest::register($copy, $name, $year, '');
     }
     $hasSoffice = is_executable('/usr/bin/soffice');
     if ($hasSoffice) {
         // Legacy .doc: made from a .docx with LibreOffice, read back through the same conversion.
-        $w = new \PhpOffice\PhpWord\PhpWord();
-        $w->addSection()->addText('عدد رخص البناء المسلمة 870');
-        \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save("$tmp/old.docx");
+        file_put_contents("$tmp/old.docx", Docx::build('عدد رخص البناء المسلمة 870', 'ar'));
         exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
+        copy("$tmp/old.doc", "$tmp/old-copy.doc"); // register() moves the file into storage
         Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
     }
-    $repairsBefore = count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages'])));
+    $repairsBefore = count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages'])));
     while (Worker::runOnce()) {
     }
     $office = Database::pdo()->query("SELECT year, kind, status, pages, error FROM reports WHERE kind <> 'pdf' ORDER BY year")->fetchAll();
@@ -251,7 +272,12 @@ try {
     check('figures from Office files join the same indicator', ($years[2018] ?? null) === 990.0 && ($years[2019] ?? null) === 1100.0 && ($years[2020] ?? null) === 1180.0 && (!$hasSoffice || ($years[2017] ?? null) === 870.0), $years);
     $src2020 = array_values(array_filter($s['points'], fn ($p) => $p['year'] === 2020))[0]['source'] ?? [];
     check('sources name the sheet / slide', ($src2020['label'] ?? '') === 'ورقة «Permis»' && str_contains(Search::refLabel((int) explode(':', substr($src2020['ref'], 1))[0], 1), 'ورقة'), $src2020);
-    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === $repairsBefore);
+    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['pages']))) === $repairsBefore);
+    $sheetUnits = fn (string $ext) => array_values(\ReportsAI\Documents::units("$root/tests/fixtures/stats-2020.$ext", "stats.$ext"));
+    $expected = [['label' => 'ورقة «Permis»', 'text' => "[Sheet: Permis]\nIndicateur | Valeur\nAutorisations de construire délivrées | 1180\nProjets de lotissement | 17\nTotal | 1197"]];
+    check('Excel .xlsx, .ods and old .xls read alike (formula results included, empty sheet skipped)', $sheetUnits('xlsx') === $expected && $sheetUnits('ods') === $expected && $sheetUnits('xls') === $expected, [$sheetUnits('xlsx'), $sheetUnits('ods'), $sheetUnits('xls')]);
+    file_put_contents("$tmp/win.csv", iconv('UTF-8', 'WINDOWS-1256', "Indicateur;Valeur\n\"Projets; lotissement\";12\nمشاريع;3\n"));
+    check('CSV in Windows Arabic encoding, quoted separators', array_values(\ReportsAI\Documents::units("$tmp/win.csv", 'win.csv'))[0]['text'] === "[Sheet: CSV]\nIndicateur | Valeur\nProjets; lotissement | 12\nمشاريع | 3");
     $copy = "$tmp/bad.xlsx";
     file_put_contents($copy, '%PDF-1.4 not a workbook');
     try {
@@ -276,11 +302,12 @@ try {
     $z->open("$tmp/series.xlsx");
     $sheetXml = (string) $z->getFromName('xl/worksheets/sheet1.xml');
     check('Excel export: right-to-left sheet, values and a native chart', preg_match('/rightToLeft="(1|true)"/', $sheetXml) === 1 && $z->locateName('xl/charts/chart1.xml') !== false && preg_match('#<v>1240(\.0)?</v>#', $sheetXml) === 1);
-    $all = \PhpOffice\PhpSpreadsheet\IOFactory::load((function () use ($tmp) { file_put_contents("$tmp/all.xlsx", Excel::allIndicators()); return "$tmp/all.xlsx"; })());
-    $head = $all->getSheet(0)->rangeToArray('A1:L1', null, true, false)[0];
-    $permRow = array_values(array_filter($all->getSheet(0)->toArray(null, true, false), fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
-    check('Excel export of all indicators: one column per year', in_array(2018, $head) && in_array(2023, $head) && in_array(1512, $permRow) && in_array(990, $permRow), [$head, $permRow]);
-    check('Excel export: values with sources sheet', $all->getSheet(1)->getHighestRow() > 20);
+    file_put_contents("$tmp/all.xlsx", Excel::allIndicators());
+    $all = \ReportsAI\Sheets::read("$tmp/all.xlsx", 'xlsx');
+    $head = $all[0]['rows'][0];
+    $permRow = array_values(array_filter($all[0]['rows'], fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
+    check('Excel export of all indicators: one column per year', in_array('2018', $head, true) && in_array('2023', $head, true) && in_array('1512', $permRow, true) && in_array('990', $permRow, true), [$head, $permRow]);
+    check('Excel export: values with sources sheet', count($all[1]['rows']) > 20);
     $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
     $pptx = Slides::build($job);
     file_put_contents("$tmp/deck.pptx", $pptx);
@@ -294,6 +321,88 @@ try {
     $calls = count(requests());
     Slides::build(Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch());
     check('slide plan reused on the next download (no new AI call)', count(requests()) === $calls);
+
+    if ($local) {
+        echo "Local model\n";
+        $slideReq = array_values(array_filter(requests(), fn ($q) => isset(schemaOf($q)['properties']['slides'])));
+        check('mixed setup: slides planned by Claude, the rest by the local model', count($slideReq) === 1 && !isset($slideReq[0]['api']) && str_starts_with($slideReq[0]['body']['model'], 'claude-'));
+        $use = Database::pdo()->query("SELECT model, COUNT(*) AS n, SUM(cost_usd) AS cost, SUM(input_tokens) AS tin FROM usage_log WHERE model LIKE 'local:%' GROUP BY model ORDER BY model")->fetchAll();
+        check('local calls logged per model, at no cost', array_column($use, 'model') === ['local:qwen2.5:3b', 'local:qwen3.5:4b'] && (float) array_sum(array_column($use, 'cost')) === 0.0 && $use[0]['tin'] > 0, $use);
+        $localError = function (array $vars, callable $call): string {
+            $saved = array_map(fn ($k) => getenv($k), array_combine(array_keys($vars), array_keys($vars)));
+            foreach ($vars as $k => $v) {
+                putenv("$k=$v");
+            }
+            try {
+                $call();
+                return '';
+            } catch (UserError $e) {
+                return $e->getMessage();
+            } finally {
+                foreach ($saved as $k => $v) {
+                    putenv($v === false ? $k : "$k=$v");
+                }
+            }
+        };
+        $ask = fn () => Assistant::ask('كم عدد رخص البناء؟');
+        check('wrong gateway key → clear message', str_contains($localError(['RAI_LOCAL_KEY' => 'wrong'], $ask), 'RAI_LOCAL_KEY'));
+        check('model not installed → clear message', str_contains($localError(['RAI_LOCAL_MODEL' => 'llama9:70b'], $ask), 'ollama list'));
+        check('computer or tunnel off → clear message', str_contains($localError(['RAI_LOCAL_URL' => 'http://127.0.0.1:' . $freePort()], $ask), 'القناة'));
+        check('text too long for the context → clear message, nothing sent', str_contains($localError(['RAI_LOCAL_CONTEXT' => '2048'], $ask), 'RAI_LOCAL_CONTEXT'));
+        check('thinking switch sent only when set', $localError(['RAI_LOCAL_THINK' => 'false'], $ask) === '' && (array_slice(requests(), -1)[0]['body']['think'] ?? null) === false);
+        exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/bin/local-check.php") . ' 2>&1', $out, $code);
+        check('bin/local-check.php confirms the connection', $code === 0 && str_contains(implode("\n", $out), 'qwen3.5:4b'), $out);
+    }
+
+    echo "File-reading service on your computer (extractor/)\n";
+    $extractPort = $freePort();
+    $serve("$root/extractor", "$root/extractor/server.php", $extractPort, ['RAI_EXTRACT_KEY' => 'test-extract-key-0123456789']);
+    $remoteEnv = ['RAI_EXTRACT_URL' => "http://127.0.0.1:$extractPort", 'RAI_EXTRACT_KEY' => 'test-extract-key-0123456789', 'RAI_EXTRACT_REMOTE' => 'always'];
+    $withEnv = function (array $vars, callable $call) {
+        $saved = array_map(fn ($k) => getenv($k), array_combine(array_keys($vars), array_keys($vars)));
+        foreach ($vars as $k => $v) {
+            putenv("$k=$v");
+        }
+        try {
+            return $call();
+        } catch (UserError $e) {
+            return $e->getMessage();
+        } finally {
+            foreach ($saved as $k => $v) {
+                putenv($v === false ? $k : "$k=$v");
+            }
+        }
+    };
+    $sample = "$root/samples/rapport-2023-ar.pdf";
+    $remoteUnits = $withEnv($remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'تقرير.pdf'));
+    check('PDF read by the service gives the same pages as here', $remoteUnits === \ReportsAI\Documents::units($sample, 'x.pdf', allowRemote: false), is_array($remoteUnits) ? count($remoteUnits) : $remoteUnits);
+    if ($hasSoffice) {
+        $doc = $withEnv($remoteEnv, fn () => \ReportsAI\Documents::units("$tmp/old-copy.doc", 'old.doc'));
+        check('old .doc read by the service', is_array($doc) && str_contains($doc[1]['text'] ?? '', '870'), $doc);
+    }
+    // Whole pipeline: a PDF read on "your computer", then repaired, indexed and analysed here.
+    copy("$root/samples/rapport-2021-ar.pdf", "$tmp/remote.pdf");
+    file_put_contents("$tmp/remote.pdf", "\n% copy\n", FILE_APPEND); // another file for the duplicate check
+    $rid = $withEnv($remoteEnv, function () use ($tmp) {
+        $id = Ingest::register("$tmp/remote.pdf", 'remote.pdf', 2012, '');
+        Worker::runOnce();
+        return $id;
+    });
+    $rr = Database::pdo()->query("SELECT status, pages, error FROM reports WHERE id = $rid")->fetch();
+    $rp = Database::pdo()->query("SELECT text FROM pages WHERE report_id = $rid AND page_no = 1")->fetchColumn();
+    check('report read by the service is processed like the others (lam-alef repaired)', $rr['status'] === 'ready' && (int) $rr['pages'] === 3 && str_contains((string) $rp, 'خلال سنة'), $rr);
+    Ingest::delete($rid);
+    check('wrong key for the service → clear message', str_contains((string) $withEnv(['RAI_EXTRACT_KEY' => 'wrong-key-0123456789xx'] + $remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'a.pdf')), 'RAI_EXTRACT_KEY'));
+    check('service not running → clear message', str_contains((string) $withEnv(['RAI_EXTRACT_URL' => 'http://127.0.0.1:' . $freePort()] + $remoteEnv, fn () => \ReportsAI\Documents::units($sample, 'a.pdf')), 'نافذتها'));
+    $served = fn () => substr_count((string) file_get_contents("$tmp/server-$extractPort.log"), '[extractor]');
+    $before = $served();
+    $here = \ReportsAI\Documents::units($sample, 'a.pdf');
+    check('without RAI_EXTRACT_URL nothing is sent (pdftotext used here)', count($here) === 3 && $served() === $before && $before >= 3, [$before, $served()]);
+    $out = $withEnv($remoteEnv, function () use ($root) {
+        exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/bin/local-check.php") . ' 2>&1', $lines);
+        return implode("\n", $lines);
+    });
+    check('bin/local-check.php sees the service', str_contains($out, '✔ تعمل'), $out);
 
     echo "Web pages\n";
     Auth::createUser('admin', 'admin-password-1', 'admin');

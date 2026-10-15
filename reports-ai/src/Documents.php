@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace ReportsAI;
 
-use PhpOffice\PhpSpreadsheet\IOFactory as SpreadsheetIO;
-
 /**
  * Reads every supported document into "units" (the equivalent of pages), each with a label used
  * in citations: PDF and Word → page («ص 3»), Excel → sheet («ورقة: Permis»), PowerPoint → slide («شريحة 4»).
  *
  *  PDF            pdftotext, page by page
  *  Word  .docx    paragraphs and tables; pages split at the page breaks Word stored in the file
- *  Excel .xlsx .xls .ods .csv   one unit per sheet (long sheets split by rows); cells joined with " | "
+ *  Excel .xlsx .xls .ods .csv   one unit per sheet (long sheets split by rows); cells joined with " | " (Sheets, Xls)
  *  PowerPoint .pptx   one unit per slide, in presentation order (text boxes and tables)
  *  .doc .ppt .odt .odp   converted first with LibreOffice (soffice), when installed
+ *  PDF and old formats can also be read by the service on your computer (extractor/, RAI_EXTRACT_URL)
  */
 final class Documents
 {
@@ -52,33 +51,107 @@ final class Documents
         }
     }
 
-    /** @return array<int, array{label: string, text: string}> unit number (1..n) => label + text */
-    public static function units(string $file, string $filename): array
+    /**
+     * @param bool $allowRemote false inside the file-reading service itself (extractor/server.php)
+     * @return array<int, array{label: string, text: string}> unit number (1..n) => label + text
+     */
+    public static function units(string $file, string $filename, bool $allowRemote = true): array
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-        if (in_array($ext, ['doc', 'odt', 'ppt', 'odp'], true)) {
-            [$file, $ext] = self::convert($file, $ext);
+        if ($allowRemote && self::useRemote($ext)) {
+            $units = self::remote($file, $filename);
+        } else {
+            $converted = null;
+            if (in_array($ext, ['doc', 'odt', 'ppt', 'odp'], true)) {
+                [$file, $ext] = $converted = self::convert($file, $ext);
+            }
+            try {
+                $units = match ($ext) {
+                    'pdf' => self::pdf($file),
+                    'docx' => self::docx($file),
+                    'xlsx', 'xls', 'ods', 'csv' => self::spreadsheet($file, $ext),
+                    'pptx' => self::pptx($file),
+                };
+            } finally {
+                if ($converted !== null) {
+                    @unlink($converted[0]); // the converted copy is not kept
+                }
+            }
         }
-        $units = match ($ext) {
-            'pdf' => self::pdf($file),
-            'docx' => self::docx($file),
-            'xlsx', 'xls', 'ods', 'csv' => self::spreadsheet($file, $ext),
-            'pptx' => self::pptx($file),
-        };
         $units = array_values(array_filter($units, fn ($u) => trim($u['text']) !== ''));
         return array_combine(range(1, max(1, count($units))), $units ?: [['label' => '1', 'text' => '']]);
+    }
+
+    /** LibreOffice, for .doc .ppt .odt .odp */
+    public static function soffice(): ?string
+    {
+        return Config::binary('soffice', ['/Applications/LibreOffice.app/Contents/MacOS', 'C:\\Program Files\\LibreOffice\\program', 'C:\\Program Files (x86)\\LibreOffice\\program'])
+            ?? Config::binary('libreoffice');
     }
 
     private static function pdf(string $file): array
     {
         if (!Pdf::available()) {
-            throw new UserError('أداة poppler-utils (pdftotext، pdfinfo) غير مثبتة على الخادم.');
+            throw new UserError('أداة pdftotext (poppler-utils) غير مثبتة على الخادم. ثبّتها، أو شغّل خدمة قراءة الملفات على حاسوبك (RAI_EXTRACT_URL).');
         }
-        $units = [];
-        for ($p = 1, $n = Pdf::pageCount($file); $p <= $n; $p++) {
-            $units[] = ['label' => "ص $p", 'text' => Pdf::pageText($file, $p)];
+        $pages = Pdf::pages($file);
+        return array_map(fn ($text, $i) => ['label' => 'ص ' . ($i + 1), 'text' => $text], $pages, array_keys($pages));
+    }
+
+    // ---- file-reading service on another computer (extractor/) -------------------------------
+
+    /**
+     * PDFs and old Office files need programs (pdftotext, LibreOffice) that shared hosting often lacks.
+     * With RAI_EXTRACT_URL they are read by the service running on your computer: when the program is
+     * missing here (RAI_EXTRACT_REMOTE=auto, default) or always (RAI_EXTRACT_REMOTE=always).
+     */
+    private static function useRemote(string $ext): bool
+    {
+        if (Config::get('RAI_EXTRACT_URL') === null || !in_array($ext, ['pdf', 'doc', 'odt', 'ppt', 'odp'], true)) {
+            return false;
         }
-        return $units;
+        if (Config::get('RAI_EXTRACT_REMOTE', 'auto') === 'always') {
+            return true;
+        }
+        return $ext === 'pdf' ? !Pdf::available() : self::soffice() === null;
+    }
+
+    private static function remote(string $file, string $filename): array
+    {
+        $headers = ['Content-Type: application/octet-stream', 'X-Filename: ' . rawurlencode(basename($filename))];
+        if (($key = Config::get('RAI_EXTRACT_KEY')) !== null) {
+            $headers[] = "Authorization: Bearer $key";
+        }
+        $ch = curl_init(rtrim((string) Config::get('RAI_EXTRACT_URL'), '/') . '/extract');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => (string) file_get_contents($file),
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 20,
+            CURLOPT_TIMEOUT => (int) Config::get('RAI_EXTRACT_TIMEOUT', '600'),
+        ]);
+        $raw = curl_exec($ch);
+        $status = $raw === false ? 0 : (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        $data = is_string($raw) ? json_decode($raw, true) : null;
+        if ($status === 200 && is_array($data['units'] ?? null)) {
+            $units = [];
+            foreach ($data['units'] as $u) {
+                if (is_string($u['label'] ?? null) && is_string($u['text'] ?? null)) {
+                    $units[] = ['label' => $u['label'], 'text' => Text::clean($u['text'])];
+                }
+            }
+            return $units;
+        }
+        error_log("[reports-ai] file-reading service: HTTP $status $curlError " . mb_substr((string) $raw, 0, 200));
+        throw new UserError(match (true) {
+            $status === 422 && is_string($data['error'] ?? null) => $data['error'], // the file itself (scanned, damaged…)
+            $status === 401 || $status === 403 => 'رفضت خدمة قراءة الملفات على حاسوبك مفتاح الدخول. تحقق من RAI_EXTRACT_KEY.',
+            $status === 0 || $status >= 500 => 'تعذّر الاتصال بخدمة قراءة الملفات على حاسوبك. تأكد أن نافذتها مفتوحة وأن RAI_EXTRACT_URL صحيح، ثم اضغط «إعادة».',
+            default => 'أرجعت خدمة قراءة الملفات على حاسوبك خطأً. حاول من جديد.',
+        });
     }
 
     // ---- Word ---------------------------------------------------------------------------------
@@ -139,33 +212,22 @@ final class Documents
 
     private static function spreadsheet(string $file, string $ext): array
     {
-        $reader = SpreadsheetIO::createReader(match ($ext) { 'xlsx' => 'Xlsx', 'xls' => 'Xls', 'ods' => 'Ods', 'csv' => 'Csv' });
-        $reader->setReadDataOnly(false); // keep number formats, compute formulas
-        if ($ext === 'csv') {
-            $reader->setInputEncoding('UTF-8');
-            $reader->setDelimiter(self::csvDelimiter($file));
-        }
-        $book = $reader->load($file);
         $units = [];
-        $total = 0;
-        foreach ($book->getWorksheetIterator() as $sheet) {
+        foreach (Sheets::read($file, $ext, self::MAX_ROWS) as $sheet) {
             $rows = [];
-            foreach ($sheet->toArray(null, true, true, false) as $row) {
-                while ($row && ($row[count($row) - 1] === null || $row[count($row) - 1] === '')) {
+            foreach ($sheet['rows'] as $row) {
+                $row = array_map(fn ($c) => trim(preg_replace('/\s+/u', ' ', $c)), $row);
+                while ($row && $row[count($row) - 1] === '') {
                     array_pop($row);
                 }
-                if ($row === []) {
-                    continue;
-                }
-                $rows[] = implode(' | ', array_map(fn ($c) => trim(preg_replace('/\s+/u', ' ', (string) $c)), $row));
-                if (++$total > self::MAX_ROWS) {
-                    throw new UserError('هذا الملف يتجاوز ' . self::MAX_ROWS . ' صف. احتفظ بأوراق الملخص فقط.');
+                if ($row !== []) {
+                    $rows[] = implode(' | ', $row);
                 }
             }
             if ($rows === []) {
                 continue;
             }
-            $name = $sheet->getTitle();
+            $name = $sheet['name'];
             // Long sheets are split; the header row is repeated so every part keeps column meanings.
             $header = $rows[0];
             foreach (array_chunk(array_slice($rows, 1), self::ROWS_PER_UNIT) ?: [[]] as $i => $chunk) {
@@ -175,16 +237,7 @@ final class Documents
                 $units[] = ['label' => $label, 'text' => "[Sheet: {$name}]\n" . $header . "\n" . implode("\n", $chunk)];
             }
         }
-        $book->disconnectWorksheets();
         return $units;
-    }
-
-    private static function csvDelimiter(string $file): string
-    {
-        $line = (string) fgets(fopen($file, 'r'));
-        $counts = array_map(fn ($d) => substr_count($line, $d), [',' => ',', ';' => ';', "\t" => "\t"]);
-        arsort($counts);
-        return (string) array_key_first($counts);
     }
 
     // ---- PowerPoint ---------------------------------------------------------------------------
@@ -240,13 +293,7 @@ final class Documents
     /** @return array{0: string, 1: string} converted file and its new extension */
     private static function convert(string $file, string $ext): array
     {
-        $soffice = null;
-        foreach (['/usr/bin/soffice', '/usr/local/bin/soffice', '/usr/bin/libreoffice', '/Applications/LibreOffice.app/Contents/MacOS/soffice'] as $bin) {
-            if (is_executable($bin)) {
-                $soffice = $bin;
-                break;
-            }
-        }
+        $soffice = self::soffice();
         $target = in_array($ext, ['doc', 'odt'], true) ? 'docx' : 'pptx';
         if ($soffice === null) {
             throw new UserError("لقراءة ملفات .$ext ثبّت LibreOffice على الخادم، أو احفظ الملف بصيغة .$target.");
@@ -255,7 +302,8 @@ final class Documents
         mkdir($dir, 0700);
         $src = "$dir/source.$ext";
         copy($file, $src);
-        $proc = proc_open([$soffice, '--headless', '--norestore', '-env:UserInstallation=file://' . $dir . '/profile', '--convert-to', $target, '--outdir', $dir, $src], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $profile = 'file:///' . ltrim(str_replace('\\', '/', $dir), '/') . '/profile';
+        $proc = proc_open([$soffice, '--headless', '--norestore', "-env:UserInstallation=$profile", '--convert-to', $target, '--outdir', $dir, $src], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         stream_get_contents($pipes[1]);
         stream_get_contents($pipes[2]);
         proc_close($proc);
@@ -263,10 +311,21 @@ final class Documents
         if (!is_file($out)) {
             throw new UserError("تعذّر تحويل ملف .$ext. احفظه بصيغة .$target وأعد المحاولة.");
         }
-        $final = tempnam(sys_get_temp_dir(), 'rai') . ".$target";
+        $base = tempnam(sys_get_temp_dir(), 'rai');
+        @unlink($base); // only its unique name is used
+        $final = "$base.$target";
         rename($out, $final);
-        exec('rm -rf ' . escapeshellarg($dir));
+        self::removeDir($dir);
         return [$final, $target];
+    }
+
+    private static function removeDir(string $dir): void
+    {
+        $items = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($items as $item) {
+            $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+        }
+        @rmdir($dir);
     }
 
     private static function zipEntry(string $file, string $entry): string
