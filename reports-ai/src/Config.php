@@ -1,0 +1,72 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ReportsAI;
+
+/**
+ * Settings from environment variables (optionally loaded from .env) and the sector file.
+ */
+final class Config
+{
+    private static ?array $domain = null;
+
+    public static function loadEnvFile(string $path): void
+    {
+        if (!is_readable($path)) {
+            return;
+        }
+        foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+                continue;
+            }
+            [$key, $value] = array_map('trim', explode('=', $line, 2));
+            if (getenv($key) === false) {
+                putenv("$key=" . trim($value, "\"'"));
+            }
+        }
+    }
+
+    public static function get(string $key, ?string $default = null): ?string
+    {
+        $value = getenv($key);
+        return ($value === false || $value === '') ? $default : $value;
+    }
+
+    public static function root(): string
+    {
+        return dirname(__DIR__);
+    }
+
+    public static function storageDir(): string
+    {
+        return self::get('RAI_STORAGE_DIR', self::root() . '/storage');
+    }
+
+    /** Model for a task (extract, map, ask, report): RAI_MODEL_<TASK>, else RAI_MODEL, else Claude Opus 5.5. */
+    public static function model(string $task): string
+    {
+        return self::get('RAI_MODEL_' . strtoupper($task)) ?? self::get('RAI_MODEL', 'claude-opus-5-5');
+    }
+
+    public static function domain(): array
+    {
+        if (self::$domain === null) {
+            $file = self::get('RAI_DOMAIN_FILE', 'config/domain.php');
+            self::$domain = require (str_starts_with($file, '/') ? $file : self::root() . '/' . $file);
+        }
+        return self::$domain;
+    }
+
+    /** Short sector description for prompts. */
+    public static function domainBrief(): string
+    {
+        $d = self::domain();
+        $categories = implode("\n", array_map(fn ($k, $v) => "- $k: {$v['ar']} / {$v['fr']}", array_keys($d['categories']), $d['categories']));
+        return "Organisation: {$d['organization']['ar']} / {$d['organization']['fr']}\n"
+            . "Sector: {$d['sector']['ar']} / {$d['sector']['fr']}\n"
+            . "Categories of figures:\n$categories\n"
+            . "Sector vocabulary (Arabic = French):\n{$d['glossary']}";
+    }
+}

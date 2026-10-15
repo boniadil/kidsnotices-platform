@@ -1,0 +1,383 @@
+<?php
+
+/*
+ * End-to-end tests against the fake Claude server (tests/mock_claude.php) — no API key, no cost.
+ *   php tests/run.php
+ * Ingests the four fictitious sample reports (2 Arabic, 2 French), then checks search, statistics,
+ * the question assistant, report writing, Word export, error handling and the web pages.
+ */
+
+declare(strict_types=1);
+
+use ReportsAI\Assistant;
+use ReportsAI\Auth;
+use ReportsAI\Database;
+use ReportsAI\Docx;
+use ReportsAI\Excel;
+use ReportsAI\Slides;
+use ReportsAI\Ingest;
+use ReportsAI\Markdown;
+use ReportsAI\ReportWriter;
+use ReportsAI\Search;
+use ReportsAI\Stats;
+use ReportsAI\Text;
+use ReportsAI\UserError;
+use ReportsAI\Worker;
+
+$root = dirname(__DIR__);
+require "$root/vendor/autoload.php";
+
+$tmp = sys_get_temp_dir() . '/rai-tests-' . bin2hex(random_bytes(4));
+mkdir($tmp, 0700, true);
+$env = [
+    'RAI_STORAGE_DIR' => $tmp,
+    'ANTHROPIC_API_KEY' => 'sk-test',
+    'RAI_MODEL' => 'claude-opus-5-5',
+    'RAI_MODEL_EXTRACT' => 'claude-haiku-5-5',
+    'RAI_MODEL_MAP' => 'claude-sonnet-5-5',
+    'MOCK_LOG_DIR' => $tmp,
+];
+
+$procs = [];
+$freePort = function (): int {
+    $s = stream_socket_server('tcp://127.0.0.1:0');
+    $port = (int) substr(strrchr(stream_socket_get_name($s, false), ':'), 1);
+    fclose($s);
+    return $port;
+};
+$serve = function (string $docroot, string $router, int $port, array $extraEnv = []) use (&$procs, $tmp, &$env) {
+    $procs[] = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', $docroot, $router], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$tmp/server-$port.log", 'w']], $p, null, $env + $extraEnv + ['PATH' => getenv('PATH')]);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100_000);
+    }
+};
+$mockPort = $freePort();
+$serve("$root/tests", "$root/tests/mock_claude.php", $mockPort);
+$env['ANTHROPIC_BASE_URL'] = "http://127.0.0.1:$mockPort";
+foreach ($env as $k => $v) {
+    putenv("$k=$v");
+}
+
+$passed = $failed = 0;
+function check(string $name, bool $ok, mixed $detail = null): void
+{
+    global $passed, $failed;
+    $ok ? $passed++ : $failed++;
+    echo ($ok ? '  ✔ ' : '  ✘ ') . $name . ($ok || $detail === null ? '' : "\n      " . json_encode($detail, JSON_UNESCAPED_UNICODE)) . "\n";
+}
+function requests(): array
+{
+    global $tmp;
+    return array_map(fn ($l) => json_decode($l, true), file("$tmp/requests.jsonl", FILE_IGNORE_NEW_LINES) ?: []);
+}
+
+try {
+    echo "Text normalization\n";
+    check('Arabic letters unified, article stripped', Text::normalize('والرُّخَص المسلّمة إلى الجماعة') === 'رخص مسلمه الي جماعه', Text::normalize('والرُّخَص المسلّمة إلى الجماعة'));
+    check('French accents and elisions', Text::normalize("L'équipement délivrées") === 'equipement delivrees');
+    check('FTS query drops stopwords, adds prefixes', Text::ftsQuery('كم عدد رخص البناء في 2021؟') === '"رخص" OR "بناء"* OR "2021"*', Text::ftsQuery('كم عدد رخص البناء في 2021؟'));
+    check('bidi controls removed', Text::clean("\u{202B}نص\u{202C}") === 'نص');
+    check('swapped lam-alef detected in extracted text', Text::hasSwappedLamAlef(str_repeat('يستعرض التقرير خالل سنة مجاالت االستثمار ', 30)) && !Text::hasSwappedLamAlef(str_repeat('يستعرض التقرير خلال سنة مجالات الاستثمار ', 30)));
+    check('repair accepted when only lam-alef order changes', Text::isSafeLamAlefRepair('خالل سنة 2021 االختبار', 'خلال سنة 2021 الاختبار'));
+    check('repair rejected when anything else changes', !Text::isSafeLamAlefRepair('خالل سنة 2021', 'خلال سنة 2022') && !Text::isSafeLamAlefRepair('خالل سنة', 'خلال عام'));
+
+    echo "Ingestion (4 sample reports: 2 Arabic, 2 French)\n";
+    foreach (glob("$root/samples/rapport-*.pdf") as $file) {
+        preg_match('/(\d{4})/', basename($file), $m);
+        $copy = tempnam($tmp, 'up');
+        copy($file, $copy);
+        Ingest::register($copy, basename($file), (int) $m[1], '');
+    }
+    $copy = tempnam($tmp, 'up');
+    copy("$root/samples/rapport-2021-ar.pdf", $copy);
+    try {
+        Ingest::register($copy, 'again.pdf', 2021, '');
+        check('duplicate file refused', false);
+    } catch (UserError) {
+        check('duplicate file refused', true);
+    }
+    while (Worker::runOnce()) {
+    }
+    $reports = Database::pdo()->query('SELECT year, status, pages, language, error FROM reports ORDER BY year')->fetchAll();
+    check('all reports processed', count($reports) === 4 && array_unique(array_column($reports, 'status')) === ['ready'], $reports);
+    check('pages read', array_column($reports, 'pages') === [3, 3, 3, 3], array_column($reports, 'pages'));
+    check('language detected', array_column($reports, 'language') === ['ar', 'fr', 'ar', 'fr'], array_column($reports, 'language'));
+
+    $perm = Search::indicators('رخص البناء');
+    $permFr = Search::indicators('autorisations construire');
+    check('same indicator found from Arabic and French words', ($perm[0]['id'] ?? 0) > 0 && ($perm[0]['id'] ?? 0) === ($permFr[0]['id'] ?? -1), [$perm[0] ?? null, $permFr[0] ?? null]);
+    check('indicator unified across 4 years and 2 languages', ($perm[0]['years'] ?? []) === [2021, 2022, 2023, 2024], $perm[0] ?? null);
+    $s = Stats::series($perm[0]['id']);
+    check('series values', array_column($s['points'], 'value') === [1240.0, 1385.0, 1512.0, 1468.0], array_column($s['points'], 'value'));
+    check('total change computed', $s['stats']['total_change_pct'] === 18.39, $s['stats']['total_change_pct']);
+    check('CAGR computed', $s['stats']['cagr_pct'] === 5.79, $s['stats']['cagr_pct']);
+    check('max year computed', $s['stats']['max'] === ['year' => 2023, 'value' => 1512.0], $s['stats']['max']);
+    check('each value has its source page and quote', $s['points'][0]['source']['page'] === 2 && str_contains($s['points'][0]['source']['quote'], '1 240'), $s['points'][0]['source']);
+    check('series filtered by years', count(Stats::series($perm[0]['id'], 2022, 2023)['points']) === 2);
+    $invented = Database::pdo()->query("SELECT COUNT(*) FROM facts WHERE value = 987654 AND verified = 0")->fetchColumn();
+    $verified = Database::pdo()->query("SELECT COUNT(*) FROM facts WHERE value <> 987654 AND verified = 1")->fetchColumn();
+    check('figures not found in the page are flagged "to check"', (int) $invented === 4 && (int) $verified >= 12, [$invented, $verified]);
+    $p1 = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.year = 2021 AND p.page_no = 1")->fetchColumn();
+    $p3 = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.year = 2021 AND p.page_no = 3")->fetchColumn();
+    check('Arabic lam-alef repaired in stored text', str_contains($p1, 'خلال سنة') && str_contains($p1, 'الاستثمار') && !str_contains($p1, 'خالل'), mb_substr($p1, 0, 160));
+    check('a repair that changed other text was rejected', !str_contains($p3, 'مزورة'), mb_substr($p3, 0, 120));
+    check('French reports are not sent for repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === 2);
+
+    echo "Search\n";
+    $hits = Search::passages('مخالفات التعمير');
+    check('Arabic full-text search', $hits && $hits[0]['year'] % 2 === 1 && array_filter($hits, fn ($h) => str_contains($h['text'], 'مخالفة')), array_column($hits, 'ref'));
+    $hits2 = Search::passages('الاستثمار');
+    check('search finds words that contained a broken ligature', count($hits2) >= 2, array_column($hits2, 'ref'));
+    $hits = Search::passages('infractions urbanisme', 2024, 2024);
+    check('French search with year filter', $hits && array_unique(array_column($hits, 'year')) === [2024], array_column($hits, 'year'));
+    check('passages carry a reference', preg_match('/^R\d+:p\d+$/', $hits[0]['ref'] ?? '') === 1);
+
+    echo "Question assistant (tool use)\n";
+    $before = count(requests());
+    $r = Assistant::ask('كم عدد رخص البناء المسلمة كل سنة؟');
+    $calls = array_slice(requests(), $before);
+    check('tool loop ran (find → series → search → answer)', count($calls) === 4, count($calls));
+    check('thinking blocks and tool results passed back correctly', true); // the mock rejects the request otherwise
+    check('answer cites sources', str_contains($r['answer'], '[R') && count($r['sources']) === 4, $r['sources']);
+    check('series returned for the chart', ($r['series'][0]['points'][3]['value'] ?? null) === 1468.0);
+    check('fallbacks + beta header on Opus', ($calls[0]['body']['fallbacks'] ?? null) === 'default' && str_contains($calls[0]['headers']['anthropic-beta'] ?? '', 'server-side-fallback'));
+    check('tools stream their input', ($calls[0]['body']['tools'][0]['eager_input_streaming'] ?? null) === true);
+    $html = Markdown::toHtml($r['answer'], fn ($id, $p) => "$id/$p");
+    check('answer rendered with source links', str_contains($html, '<a class="cite" href="/source?report=') && str_contains($html, '<table>'));
+    $extract = array_values(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['facts'])));
+    check('no fallbacks sent to Haiku (extraction)', $extract && !array_key_exists('fallbacks', $extract[0]['body']) && empty($extract[0]['headers']['anthropic-beta']));
+    $r2 = Assistant::ask('Et en 2024 ?', [['role' => 'assistant', 'content' => 'orphan'], ['role' => 'user', 'content' => 'q1'], ['role' => 'user', 'content' => 'q1 again'], ['role' => 'assistant', 'content' => 'a1'], ['role' => 'user', 'content' => 'dangling']]);
+    check('messy history repaired into alternating turns', $r2['answer'] !== '');
+    try {
+        Assistant::ask('__REFUSE__');
+        check('refusal reported', false);
+    } catch (UserError $e) {
+        check('refusal reported as a clear error', str_contains($e->getMessage(), 'رفض'));
+    }
+
+    echo "Report writing\n";
+    $id = ReportWriter::create('annual', 'التقرير السنوي 2025', 'ar', ['year' => 2025, 'new_data' => 'عدد رخص البناء المسلمة: 1530', 'instructions' => ''], 'tester');
+    Worker::runOnce();
+    $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
+    check('annual report written', $job['status'] === 'ready' && str_contains($job['markdown'], '# تقرير') && str_contains($job['markdown'], '[new data]'), [$job['status'], $job['error']]);
+    $sys = array_values(array_filter(requests(), fn ($q) => str_contains((string) ($q['body']['system'] ?? ''), 'You write official reports')))[0]['body']['system'] ?? '';
+    check('writer receives the structure of the latest report', str_contains($sys, 'دراسة طلبات رخص البناء') && str_contains($sys, 'مواكبة الاستثمار'), mb_substr($sys, 0, 300));
+    $docx = Docx::build($job['markdown'], 'ar');
+    $zipFile = "$tmp/test.docx";
+    file_put_contents($zipFile, $docx);
+    $zip = new ZipArchive();
+    $xml = $zip->open($zipFile) === true ? $zip->getFromName('word/document.xml') : '';
+    check('Word export: valid file with RTL text, table and readable citations', str_contains($xml, 'رخص البناء') && str_contains($xml, '<w:bidi') && str_contains($xml, '<w:tbl>') && str_contains($xml, 'تقرير 2021، ص'), mb_substr(strip_tags((string) $xml), 0, 200));
+    $id2 = ReportWriter::create('thematic', 'Évolution des autorisations', 'fr', ['topic' => 'autorisations', 'year_from' => 2021, 'year_to' => 2024], 'tester');
+    Worker::runOnce();
+    check('thematic report written', Database::pdo()->query("SELECT status FROM generated_reports WHERE id = $id2")->fetchColumn() === 'ready');
+
+    echo "Errors & deletion\n";
+    $copy = tempnam($tmp, 'up');
+    copy("$root/tests/fixtures/scanned.pdf", $copy);
+    $sid = Ingest::register($copy, 'scanned.pdf', 2010, '');
+    Worker::runOnce();
+    $sc = Database::pdo()->query("SELECT status, error FROM reports WHERE id = $sid")->fetch();
+    check('scanned PDF detected with a clear message', $sc['status'] === 'error' && str_contains($sc['error'], 'ممسوح'), $sc);
+    $copy = tempnam($tmp, 'up');
+    file_put_contents($copy, 'not a pdf');
+    try {
+        Ingest::register($copy, 'x.pdf', 2010, '');
+        check('non-PDF refused', false);
+    } catch (UserError) {
+        check('non-PDF refused', true);
+    }
+    $rid = (int) Database::pdo()->query('SELECT id FROM reports WHERE year = 2024')->fetchColumn();
+    Ingest::delete($rid);
+    check('deleting a report removes its figures', array_column(Stats::series($perm[0]['id'])['points'], 'year') === [2021, 2022, 2023]);
+    check('deleting removes its passages from search', Search::passages('infractions urbanisme', 2024, 2024) === []);
+
+    echo "Word, Excel, PowerPoint\n";
+    // Fixtures written with the same libraries an administration's files come from.
+    $word = new \PhpOffice\PhpWord\PhpWord();
+    $sec = $word->addSection();
+    $sec->addText('التقرير السنوي لأنشطة الوكالة برسم سنة 2019');
+    $sec->addPageBreak();
+    $sec->addText('بلغ عدد رخص البناء المسلمة 1100 رخصة خلال السنة.');
+    $tbl = $sec->addTable();
+    $tbl->addRow();
+    $tbl->addCell(4000)->addText('مشاريع التجزئات العقارية');
+    $tbl->addCell(2000)->addText('15');
+    \PhpOffice\PhpWord\IOFactory::createWriter($word, 'Word2007')->save("$tmp/rapport-2019.docx");
+
+    $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $book->getActiveSheet()->setTitle('Permis');
+    $sheet->fromArray([['Indicateur', 'Valeur'], ['Autorisations de construire délivrées', 1180], ['Projets de lotissement', 17]]);
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book))->save("$tmp/stats-2020.xlsx");
+
+    $ppt = new \PhpOffice\PhpPresentation\PhpPresentation();
+    $ppt->getActiveSlide()->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('حصيلة سنة 2018');
+    $s2 = $ppt->createSlide();
+    $s2->createRichTextShape()->setWidth(600)->setHeight(80)->createTextRun('عدد رخص البناء المسلمة 990');
+    $t2 = $s2->createTableShape(2)->setWidth(600);
+    $row = $t2->createRow();
+    $row->nextCell()->createTextRun('مشاريع التجهيزات العمومية');
+    $row->nextCell()->createTextRun('39');
+    \PhpOffice\PhpPresentation\IOFactory::createWriter($ppt, 'PowerPoint2007')->save("$tmp/bilan-2018.pptx");
+
+    foreach (['rapport-2019.docx' => 2019, 'stats-2020.xlsx' => 2020, 'bilan-2018.pptx' => 2018] as $name => $year) {
+        $copy = "$tmp/upload-$name";
+        copy("$tmp/$name", $copy);
+        Ingest::register($copy, $name, $year, '');
+    }
+    $hasSoffice = is_executable('/usr/bin/soffice');
+    if ($hasSoffice) {
+        // Legacy .doc: made from a .docx with LibreOffice, read back through the same conversion.
+        $w = new \PhpOffice\PhpWord\PhpWord();
+        $w->addSection()->addText('عدد رخص البناء المسلمة 870');
+        \PhpOffice\PhpWord\IOFactory::createWriter($w, 'Word2007')->save("$tmp/old.docx");
+        exec('cd ' . escapeshellarg($tmp) . ' && soffice --headless -env:UserInstallation=file://' . $tmp . '/lo --convert-to doc old.docx > /dev/null 2>&1');
+        Ingest::register("$tmp/old.doc", 'rapport-2017.doc', 2017, '');
+    }
+    $repairsBefore = count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages'])));
+    while (Worker::runOnce()) {
+    }
+    $office = Database::pdo()->query("SELECT year, kind, status, pages, error FROM reports WHERE kind <> 'pdf' ORDER BY year")->fetchAll();
+    check('Word, Excel, PowerPoint' . ($hasSoffice ? ' and legacy .doc' : '') . ' files processed', count($office) === ($hasSoffice ? 4 : 3) && array_unique(array_column($office, 'status')) === ['ready'], $office);
+    $labels = Database::pdo()->query("SELECT r.kind, p.label FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.kind <> 'pdf' ORDER BY r.year, p.page_no")->fetchAll(\PDO::FETCH_NUM);
+    $labelsOf = fn ($kind) => array_values(array_map(fn ($l) => $l[1], array_filter($labels, fn ($l) => $l[0] === $kind && !str_starts_with($l[1], 'جزء'))));
+    check('Word split at its page breaks (ص 1, ص 2)', in_array('ص 2', $labelsOf('word'), true), $labels);
+    check('Excel read sheet by sheet', $labelsOf('excel') === ['ورقة «Permis»'], $labelsOf('excel'));
+    check('PowerPoint read slide by slide', $labelsOf('powerpoint') === ['شريحة 1', 'شريحة 2'], $labelsOf('powerpoint'));
+    $sheetText = Database::pdo()->query("SELECT text FROM pages p JOIN reports r ON r.id = p.report_id WHERE r.kind = 'excel'")->fetchColumn();
+    check('Excel cells kept as rows "a | b"', str_contains($sheetText, 'Autorisations de construire délivrées | 1180'), $sheetText);
+    $s = Stats::series($perm[0]['id']);
+    $years = array_column($s['points'], 'value', 'year');
+    check('figures from Office files join the same indicator', ($years[2018] ?? null) === 990.0 && ($years[2019] ?? null) === 1100.0 && ($years[2020] ?? null) === 1180.0 && (!$hasSoffice || ($years[2017] ?? null) === 870.0), $years);
+    $src2020 = array_values(array_filter($s['points'], fn ($p) => $p['year'] === 2020))[0]['source'] ?? [];
+    check('sources name the sheet / slide', ($src2020['label'] ?? '') === 'ورقة «Permis»' && str_contains(Search::refLabel((int) explode(':', substr($src2020['ref'], 1))[0], 1), 'ورقة'), $src2020);
+    check('Office text is not sent for lam-alef repair', count(array_filter(requests(), fn ($q) => isset($q['body']['output_config']['format']['schema']['properties']['pages']))) === $repairsBefore);
+    $copy = "$tmp/bad.xlsx";
+    file_put_contents($copy, '%PDF-1.4 not a workbook');
+    try {
+        Ingest::register($copy, 'bad.xlsx', 2010, '');
+        check('content that does not match the extension is refused', false);
+    } catch (UserError) {
+        check('content that does not match the extension is refused', true);
+    }
+    try {
+        $copy = "$tmp/x.exe";
+        file_put_contents($copy, 'MZ');
+        Ingest::register($copy, 'x.exe', 2010, '');
+        check('unsupported type refused', false);
+    } catch (UserError) {
+        check('unsupported type refused', true);
+    }
+
+    echo "Exports\n";
+    $xlsx = Excel::series(Stats::series($perm[0]['id']));
+    file_put_contents("$tmp/series.xlsx", $xlsx);
+    $z = new ZipArchive();
+    $z->open("$tmp/series.xlsx");
+    $sheetXml = (string) $z->getFromName('xl/worksheets/sheet1.xml');
+    check('Excel export: right-to-left sheet, values and a native chart', preg_match('/rightToLeft="(1|true)"/', $sheetXml) === 1 && $z->locateName('xl/charts/chart1.xml') !== false && preg_match('#<v>1240(\.0)?</v>#', $sheetXml) === 1);
+    $all = \PhpOffice\PhpSpreadsheet\IOFactory::load((function () use ($tmp) { file_put_contents("$tmp/all.xlsx", Excel::allIndicators()); return "$tmp/all.xlsx"; })());
+    $head = $all->getSheet(0)->rangeToArray('A1:L1', null, true, false)[0];
+    $permRow = array_values(array_filter($all->getSheet(0)->toArray(null, true, false), fn ($r) => $r[0] === 'عدد رخص البناء المسلمة'))[0] ?? [];
+    check('Excel export of all indicators: one column per year', in_array(2018, $head) && in_array(2023, $head) && in_array(1512, $permRow) && in_array(990, $permRow), [$head, $permRow]);
+    check('Excel export: values with sources sheet', $all->getSheet(1)->getHighestRow() > 20);
+    $job = Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch();
+    $pptx = Slides::build($job);
+    file_put_contents("$tmp/deck.pptx", $pptx);
+    $z = new ZipArchive();
+    $z->open("$tmp/deck.pptx");
+    $slideFiles = array_filter(array_map(fn ($i) => $z->getNameIndex($i), range(0, $z->numFiles - 1)), fn ($n) => preg_match('#^ppt/slides/slide\d+\.xml$#', $n));
+    $s2xml = (string) $z->getFromName('ppt/slides/slide2.xml');
+    $plan = json_decode(Database::pdo()->query("SELECT slides_json FROM generated_reports WHERE id = $id")->fetchColumn(), true);
+    check('PowerPoint export: slides, right-to-left text, native chart', count($slideFiles) >= 3 && str_contains($s2xml, 'rtl="1"') && array_filter(range(0, $z->numFiles - 1), fn ($i) => str_starts_with($z->getNameIndex($i), 'ppt/charts/')), [count($slideFiles)]);
+    check('chart with a number not in the report is dropped', end($plan['slides'])['chart']['points'] === []);
+    $calls = count(requests());
+    Slides::build(Database::pdo()->query("SELECT * FROM generated_reports WHERE id = $id")->fetch());
+    check('slide plan reused on the next download (no new AI call)', count(requests()) === $calls);
+
+    echo "Web pages\n";
+    Auth::createUser('admin', 'admin-password-1', 'admin');
+    Auth::createUser('agent', 'agent-password-1', 'user');
+    $webPort = $freePort();
+    $serve("$root/public", "$root/public/index.php", $webPort);
+    $base = "http://127.0.0.1:$webPort";
+    $jar = "$tmp/cookies.txt";
+    $http = function (string $method, string $path, array $data = [], array $headers = []) use ($base, $jar) {
+        $ch = curl_init($base . $path);
+        curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar, CURLOPT_HTTPHEADER => $headers, CURLOPT_TIMEOUT => 60]);
+        if ($method === 'POST') {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+        }
+        $raw = (string) curl_exec($ch);
+        $size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        return [$status, substr($raw, 0, $size), substr($raw, $size)];
+    };
+    [$st, $hd] = $http('GET', '/');
+    check('not logged in → redirect to login', $st === 303 && str_contains($hd, 'Location: /login'));
+    [$st, , $body] = $http('GET', '/api/series?id=1');
+    check('API refuses anonymous access', $st === 401);
+    [, , $body] = $http('GET', '/login');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $body, $m);
+    $csrf = $m[1] ?? '';
+    [$st, , $body] = $http('POST', '/login', ['csrf' => $csrf, 'username' => 'admin', 'password' => 'wrong']);
+    check('wrong password refused', $st === 200 && str_contains($body, 'غير صحيحة'));
+    [$st, $hd] = $http('POST', '/login', ['csrf' => $csrf, 'username' => 'admin', 'password' => 'admin-password-1']);
+    check('login', $st === 303 && str_contains($hd, 'Location: /'));
+    [, , $body] = $http('GET', '/');
+    preg_match('/name="csrf-token" content="([a-f0-9]+)"/', $body, $m);
+    $csrf = $m[1] ?? '';
+    check('dashboard lists reports and counts', str_contains($body, 'قاعدة التقارير') && str_contains($body, '2023') && str_contains($body, 'إضافة تقرير سنوي'));
+    [$st, , $body] = $http('GET', '/api/series?id=' . $perm[0]['id']);
+    check('series API', $st === 200 && in_array(1240, array_column(json_decode($body, true)['points'], 'value')));
+    [$st, $hd, $body] = $http('GET', '/stats/csv?id=' . $perm[0]['id']);
+    check('CSV export for Excel (UTF-8 BOM)', $st === 200 && str_starts_with($body, "\xEF\xBB\xBF") && str_contains($body, '1385'));
+    [$st, , $body] = $http('GET', "/source?report=1&page=2");
+    check('source page shows the report text', $st === 200 && str_contains($body, 'رخص البناء'));
+    [$st] = $http('POST', '/reports/delete', ['id' => 1]);
+    $still = (int) Database::pdo()->query('SELECT COUNT(*) FROM reports WHERE id = 1')->fetchColumn();
+    check('POST without CSRF token refused', $still === 1);
+    [$st, , $body] = $http('POST', '/api/ask', ['question' => 'كم عدد رخص البناء؟'], ["X-CSRF-Token: $csrf"]);
+    $ans = json_decode($body, true);
+    check('ask API returns HTML answer with sources and chart data', $st === 200 && str_contains($ans['html'] ?? '', 'cite') && count($ans['series'] ?? []) === 1, [$st, mb_substr($body, 0, 200)]);
+    [$st, $hd, $body] = $http('GET', "/write/download?id=$id&format=docx");
+    check('Word download', $st === 200 && str_contains($hd, 'wordprocessingml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', "/write/download?id=$id&format=pptx");
+    check('PowerPoint download', $st === 200 && str_contains($hd, 'presentationml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', '/stats/xlsx?id=' . $perm[0]['id']);
+    check('Excel download (one indicator)', $st === 200 && str_contains($hd, 'spreadsheetml') && str_starts_with($body, 'PK'));
+    [$st, $hd, $body] = $http('GET', '/stats/xlsx-all');
+    check('Excel download (all indicators)', $st === 200 && str_contains($hd, 'spreadsheetml'));
+    // Upload through the page (multipart), then the background worker started by the page processes it.
+    file_put_contents("$tmp/web.csv", "Indicateur;Valeur\nProjets de lotissement;12\n");
+    $ch = curl_init("$base/upload");
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $jar, CURLOPT_COOKIEJAR => $jar,
+        CURLOPT_POSTFIELDS => ['csrf' => $csrf, 'year' => '2016', 'title' => '', 'file' => new CURLFile("$tmp/web.csv", 'text/csv', 'stats-2016.csv')]]);
+    curl_exec($ch);
+    curl_close($ch);
+    for ($i = 0, $st16 = null; $i < 60 && $st16 !== 'ready' && $st16 !== 'error'; $i++) {
+        usleep(250_000);
+        $st16 = Database::pdo()->query("SELECT status FROM reports WHERE year = 2016")->fetchColumn();
+    }
+    check('CSV uploaded from the page and processed in the background', $st16 === 'ready', $st16);
+    $http('POST', '/logout', ['csrf' => $csrf]);
+    [, , $body] = $http('GET', '/login');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $body, $m);
+    $http('POST', '/login', ['csrf' => $m[1] ?? '', 'username' => 'agent', 'password' => 'agent-password-1']);
+    [, , $body] = $http('GET', '/');
+    preg_match('/name="csrf-token" content="([a-f0-9]+)"/', $body, $m);
+    check('non-admin does not see the upload form', !str_contains($body, 'إضافة تقرير سنوي'));
+    $http('POST', '/reports/delete', ['csrf' => $m[1] ?? '', 'id' => 1]);
+    check('non-admin cannot delete reports', (int) Database::pdo()->query('SELECT COUNT(*) FROM reports WHERE id = 1')->fetchColumn() === 1);
+} finally {
+    foreach ($procs as $p) {
+        proc_terminate($p);
+    }
+    if (!getenv('KEEP_TMP')) {
+        exec('rm -rf ' . escapeshellarg($tmp));
+    }
+}
+
+echo "\n$passed passed, $failed failed\n";
+exit($failed === 0 ? 0 : 1);

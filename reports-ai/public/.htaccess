@@ -1,0 +1,10 @@
+# Apache: every request goes to index.php (except real files: CSS, JS).
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]
+# Larger uploads for annual reports (if PHP runs as an Apache module).
+<IfModule mod_php.c>
+  php_value upload_max_filesize 64M
+  php_value post_max_size 70M
+  php_value max_execution_time 300
+</IfModule>
