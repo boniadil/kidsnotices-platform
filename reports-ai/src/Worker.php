@@ -38,11 +38,23 @@ final class Worker
     public static function kick(): void
     {
         $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
-        if (!function_exists('exec') || in_array('exec', $disabled, true)) {
+        $script = Config::root() . '/bin/worker.php';
+        if (PHP_OS_FAMILY === 'Windows') {
+            // Apache on Windows (XAMPP, WAMP): "start /B" detaches the worker so the page does not wait.
+            if (function_exists('popen') && !in_array('popen', $disabled, true)) {
+                pclose(popen('start "" /B ' . escapeshellarg(self::php()) . ' ' . escapeshellarg($script) . ' > NUL 2>&1', 'r'));
+            }
             return;
         }
-        $php = Config::get('RAI_PHP_CLI', 'php');
-        $script = Config::root() . '/bin/worker.php';
-        exec(escapeshellarg($php) . ' ' . escapeshellarg($script) . ' > /dev/null 2>&1 &');
+        if (function_exists('exec') && !in_array('exec', $disabled, true)) {
+            exec(escapeshellarg(self::php()) . ' ' . escapeshellarg($script) . ' > /dev/null 2>&1 &');
+        }
+    }
+
+    /** PHP command line: RAI_PHP_CLI, else the php next to the running PHP (C:\xampp\php\php.exe…), else "php". */
+    private static function php(): string
+    {
+        $cli = PHP_BINDIR . DIRECTORY_SEPARATOR . (PHP_OS_FAMILY === 'Windows' ? 'php.exe' : 'php');
+        return Config::get('RAI_PHP_CLI') ?? (@is_file($cli) ? $cli : 'php');
     }
 }

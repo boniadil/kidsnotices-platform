@@ -12,11 +12,13 @@ use ReportsAI\Config;
 use ReportsAI\Database;
 use ReportsAI\Docx;
 use ReportsAI\Excel;
+use ReportsAI\Health;
 use ReportsAI\Slides;
 use ReportsAI\Ingest;
 use ReportsAI\Markdown;
 use ReportsAI\ReportWriter;
 use ReportsAI\Search;
+use ReportsAI\Settings;
 use ReportsAI\Stats;
 use ReportsAI\UserError;
 use ReportsAI\View;
@@ -49,6 +51,33 @@ try {
             View::render('login', ['error' => 'اسم المستخدم أو كلمة المرور غير صحيحة.']);
         }
         View::render('login', []);
+    }
+
+    // The file-reading service on your computer gives its new tunnel address after each start.
+    // No session: it proves itself with its own key (RAI_EXTRACT_KEY), then the address is checked.
+    if ("$method $path" === 'POST /api/extractor/register') {
+        $expected = Config::get('RAI_EXTRACT_KEY');
+        // Key in the body ("key") or in "Authorization: Bearer …" (some Apache setups drop that header).
+        $given = is_string($_POST['key'] ?? null) ? $_POST['key']
+            : (string) preg_replace('/^Bearer\s+/i', '', (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
+        if ($expected === null) {
+            View::json(['error' => 'Set the service key (RAI_EXTRACT_KEY) in the platform settings first.'], 403);
+        }
+        if (!hash_equals($expected, $given)) {
+            View::json(['error' => 'Wrong key.'], 401);
+        }
+        $url = rtrim(trim((string) ($_POST['url'] ?? json_decode((string) file_get_contents('php://input'), true)['url'] ?? '')), '/');
+        $parts = parse_url($url);
+        $loopback = in_array($parts['host'] ?? '', ['127.0.0.1', 'localhost'], true);
+        if (!isset($parts['scheme'], $parts['host']) || !($parts['scheme'] === 'https' || ($parts['scheme'] === 'http' && $loopback)) || isset($parts['user']) || isset($parts['query'])) {
+            View::json(['error' => 'The address must be https://…'], 422);
+        }
+        $health = Health::extractor($url, $expected);
+        if (!$health['ok']) {
+            View::json(['error' => 'The platform cannot reach the service at this address: ' . $health['message']], 422);
+        }
+        Settings::set(['RAI_EXTRACT_URL' => $url]);
+        View::json(['ok' => true] + $health);
     }
 
     $user = Auth::user();
@@ -244,6 +273,51 @@ try {
         case 'POST /write/delete':
             Database::pdo()->prepare('DELETE FROM generated_reports WHERE id = ?')->execute([$int('id')]);
             View::redirect('/write');
+
+        // ---- Settings (admin) --------------------------------------------------------------
+        case 'GET /settings':
+            $adminOnly();
+            $values = [];
+            foreach (Settings::KEYS as $key => $secret) {
+                $values[$key] = ['value' => Config::get($key), 'env' => Config::env($key)];
+            }
+            View::render('settings', ['values' => $values, 'saved' => Settings::saved(), 'hosting' => Health::hosting()]);
+
+        case 'POST /settings':
+            $adminOnly();
+            $changes = [];
+            foreach (Settings::KEYS as $key => $secret) {
+                if (!array_key_exists($key, $_POST)) {
+                    continue;
+                }
+                $value = trim((string) $_POST[$key]);
+                if ($secret && $value === '' && empty($_POST["clear_$key"])) {
+                    continue; // secret left empty: keep the saved one
+                }
+                if (str_starts_with($key, 'RAI_PROVIDER') && !in_array($value, ['', 'anthropic', 'local'], true)) {
+                    continue;
+                }
+                if (($key === 'RAI_LOCAL_URL' || $key === 'RAI_EXTRACT_URL') && $value !== '' && !preg_match('#^https?://[^\s/]+#i', $value)) {
+                    throw new UserError('العنوان يجب أن يبدأ بـ https:// أو http://');
+                }
+                if ($key === 'RAI_EXTRACT_REMOTE' && !in_array($value, ['', 'auto', 'always'], true)) {
+                    continue;
+                }
+                if ($key === 'RAI_EXTRACT_KEY' && $value !== '' && strlen($value) < 20) {
+                    throw new UserError('مفتاح خدمة قراءة الملفات قصير جداً (20 حرفاً على الأقل).');
+                }
+                $changes[$key] = $value;
+            }
+            Settings::set($changes);
+            View::flash('تم حفظ الإعدادات.');
+            View::redirect('/settings');
+
+        case 'POST /api/settings/test':
+            $adminOnly();
+            session_write_close();
+            $url = $str('url') !== '' ? $str('url') : null;
+            $key = $str('key') !== '' ? $str('key') : null;
+            View::json($str('what') === 'local' ? Health::local($url, $key) : Health::extractor($url, $key));
 
         default:
             http_response_code(404);

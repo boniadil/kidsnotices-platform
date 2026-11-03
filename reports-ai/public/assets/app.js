@@ -158,4 +158,27 @@
       try { const s = await api('/api/write?id=' + job.dataset.id); if (['ready', 'error'].includes(s.status)) { clearInterval(poll); location.reload(); } } catch (_) {}
     }, 5000);
   }
+
+  // ---- Settings: connection tests (with the values typed, even before saving)
+  $$('[data-test]').forEach((btn) => btn.addEventListener('click', async () => {
+    const what = btn.dataset.test;
+    const out = $(`[data-result="${what}"]`);
+    const prefix = what === 'local' ? 'RAI_LOCAL' : 'RAI_EXTRACT';
+    btn.disabled = true;
+    out.className = 'test-result';
+    out.textContent = 'جارٍ الاختبار…';
+    try {
+      const r = await api('/api/settings/test', { what, url: $(`[name="${prefix}_URL"]`).value.trim(), key: $(`[name="${prefix}_KEY"]`).value.trim() });
+      out.className = 'test-result ' + (r.ok ? 'ok' : 'err');
+      const yn = (b) => (b ? 'نعم' : 'لا');
+      out.textContent = !r.ok ? '✘ ' + r.message
+        : what === 'local' ? '✔ ' + r.message + ' · النماذج: ' + (r.models.join('، ') || '—')
+        : `✔ ${r.message} · PDF: ${yn(r.pdf)} · الممسوحة: ${yn(r.ocr)} · ‎.doc/.ppt: ${yn(r.office)}`;
+    } catch (e) {
+      out.className = 'test-result err';
+      out.textContent = '✘ ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }));
 })();

@@ -136,7 +136,7 @@ final class Documents
         $curlError = curl_error($ch);
         curl_close($ch);
         $data = is_string($raw) ? json_decode($raw, true) : null;
-        if ($status === 200 && is_array($data['units'] ?? null)) {
+        if ($status === 200 && is_array($data) && is_array($data['units'] ?? null)) {
             $units = [];
             foreach ($data['units'] as $u) {
                 if (is_string($u['label'] ?? null) && is_string($u['text'] ?? null)) {
@@ -147,7 +147,7 @@ final class Documents
         }
         error_log("[reports-ai] file-reading service: HTTP $status $curlError " . mb_substr((string) $raw, 0, 200));
         throw new UserError(match (true) {
-            $status === 422 && is_string($data['error'] ?? null) => $data['error'], // the file itself (scanned, damaged…)
+            in_array($status, [200, 422], true) && is_string($data['error'] ?? null) => $data['error'], // the file itself (scanned, damaged…)
             $status === 401 || $status === 403 => 'رفضت خدمة قراءة الملفات على حاسوبك مفتاح الدخول. تحقق من RAI_EXTRACT_KEY.',
             $status === 0 || $status >= 500 => 'تعذّر الاتصال بخدمة قراءة الملفات على حاسوبك. تأكد أن نافذتها مفتوحة وأن RAI_EXTRACT_URL صحيح، ثم اضغط «إعادة».',
             default => 'أرجعت خدمة قراءة الملفات على حاسوبك خطأً. حاول من جديد.',

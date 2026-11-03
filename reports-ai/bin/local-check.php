@@ -40,13 +40,16 @@ if (($extract = Config::get('RAI_EXTRACT_URL')) !== null) {
     $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
     if ($status === 200 && !empty($health['ok'])) {
-        echo '✔ تعمل. PDF: ' . ($health['pdf'] ? 'نعم' : 'لا (pdftotext غير موجود على حاسوبك)') . '، ‎.doc/.ppt: ' . ($health['office'] ? 'نعم' : 'لا (LibreOffice غير مثبت)') . "\n";
+        echo '✔ تعمل. PDF: ' . ($health['pdf'] ? 'نعم' : 'لا (pdftotext غير موجود على حاسوبك)')
+            . '، PDF الممسوحة: ' . (!empty($health['ocr']) ? 'نعم' : 'لا (Tesseract غير مثبت)')
+            . '، ‎.doc/.ppt: ' . ($health['office'] ? 'نعم' : 'لا (LibreOffice غير مثبت)') . "\n";
     } else {
         fwrite(STDERR, "✘ لا تجيب (HTTP $status). " . ($status === 401 ? 'تحقق من RAI_EXTRACT_KEY.' : 'تأكد أن نافذتها مفتوحة وأن RAI_EXTRACT_URL هو العنوان المعروض فيها.') . "\n");
         $failed = true;
     }
 } else {
-    echo "\nقراءة PDF على هذا الخادم: " . (Pdf::available() ? '✔ pdftotext موجود' : '✘ pdftotext غير موجود — شغّل خدمة قراءة الملفات على حاسوبك (extractor/)') . "\n";
+    echo "\nقراءة PDF على هذا الخادم: " . (Pdf::available() ? '✔ pdftotext موجود' : '✘ pdftotext غير موجود — شغّل خدمة قراءة الملفات على حاسوبك (extractor/)')
+        . '، PDF الممسوحة (OCR): ' . (Pdf::ocrAvailable() ? '✔ Tesseract موجود' : 'غير متاحة') . "\n";
 }
 
 if ($models === []) {

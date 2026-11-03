@@ -21,6 +21,7 @@
       <a href="/ask" <?= $here === '/ask' ? 'aria-current="page"' : '' ?>>اسأل</a>
       <a href="/stats" <?= $here === '/stats' ? 'aria-current="page"' : '' ?>>الإحصائيات</a>
       <a href="/write" <?= str_starts_with((string) $here, '/write') ? 'aria-current="page"' : '' ?>>تحرير تقرير</a>
+      <?php if ($user['role'] === 'admin'): ?><a href="/settings" <?= $here === '/settings' ? 'aria-current="page"' : '' ?>>الإعدادات</a><?php endif; ?>
     </nav>
     <form method="post" action="/logout" class="user">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

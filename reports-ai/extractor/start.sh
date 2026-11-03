@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Reports AI — file-reading service (PDF, .doc, .ppt) on this computer (Linux / macOS).
-# Starts the service (PHP + pdftotext) and a Cloudflare tunnel, then prints the two lines for the
-# hosting's .env file: RAI_EXTRACT_URL and RAI_EXTRACT_KEY.
+# Starts the service (PHP + pdftotext) and a Cloudflare tunnel, sends the new address to the platform
+# (platform.txt), then prints the address and key (RAI_EXTRACT_URL, RAI_EXTRACT_KEY).
 # Needs: php 8.1+, pdftotext (apt install poppler-utils | brew install poppler), cloudflared.
+# Optional: tesseract with Arabic and French (apt install tesseract-ocr-ara tesseract-ocr-fra) for scanned PDFs.
 # Keep this terminal open; Ctrl+C stops the service.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +21,15 @@ if [ ! -f "$key_file" ]; then
   chmod 600 "$key_file"
 fi
 key="$(tr -d '[:space:]' < "$key_file")"
+
+# Platform address (asked once, kept in platform.txt): the new tunnel address is sent to it at every start.
+platform_file="$here/platform.txt"
+if [ ! -f "$platform_file" ] && [ -t 0 ]; then
+  read -r -p "Platform address (e.g. https://reports.example.org), or Enter to skip: " answer
+  [ -n "$answer" ] && printf '%s' "${answer%/}" > "$platform_file"
+fi
+platform="$( [ -f "$platform_file" ] && tr -d '[:space:]' < "$platform_file" || true )"
+platform="${platform%/}"
 
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
@@ -48,8 +58,24 @@ for _ in $(seq 1 90); do
 done
 [ -n "$url" ] || { echo "The tunnel did not start, see $here/tunnel.log" >&2; exit 1; }
 
+registered=""
+if [ -n "$platform" ]; then
+  for _ in $(seq 1 8); do
+    sleep "${RAI_REGISTER_WAIT:-4}"
+    if curl -fsS -X POST --data-urlencode "url=$url" --data-urlencode "key=$key" "$platform/api/extractor/register" >/dev/null 2>"$here/register.log"; then
+      registered=1
+      break
+    fi
+  done
+  if [ -n "$registered" ]; then
+    echo "Platform: new address registered automatically on $platform"
+  else
+    echo "Platform: automatic registration failed (see $here/register.log). Is the key below saved in the platform's settings page?"
+  fi
+fi
+
 echo
-echo "============ PUT THESE IN THE HOSTING'S .env FILE ============"
+echo "====== PUT THESE IN THE PLATFORM'S SETTINGS PAGE (or .env) ======"
 echo " RAI_EXTRACT_URL=$url"
 echo " RAI_EXTRACT_KEY=$key"
 echo "=============================================================="

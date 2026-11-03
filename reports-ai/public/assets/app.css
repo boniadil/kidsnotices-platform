@@ -120,3 +120,12 @@ a.cite:hover { filter: brightness(.95); }
   .doc { padding: 18px; }
 }
 @media (max-width: 600px) { .hide-sm { display: none; } }
+
+/* Settings */
+.settings .card select { max-width: 220px; }
+.test-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.test-result { font-size: 14px; } .test-result.ok { color: var(--ok); } .test-result.err { color: var(--err); }
+label.inline { display: inline-flex !important; gap: 4px; align-items: center; margin-inline-start: 8px; }
+label.inline input { width: auto; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; direction: ltr; unicode-bidi: isolate; }
+@media (max-width: 640px) { .settings .current { display: none; } .settings .card select { min-width: 180px; } }

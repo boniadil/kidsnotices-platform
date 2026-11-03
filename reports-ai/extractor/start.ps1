@@ -1,6 +1,6 @@
-﻿# Reports AI - service de lecture des fichiers (PDF, .doc, .ppt) sur cet ordinateur.
-# Lance le service (PHP + pdftotext) et un tunnel Cloudflare, puis affiche les deux lignes
-# a mettre dans le fichier .env de l'hebergement : RAI_EXTRACT_URL et RAI_EXTRACT_KEY.
+﻿# Reports AI - service de lecture des fichiers (PDF, PDF scannes, .doc, .ppt) sur cet ordinateur.
+# Lance le service (PHP + pdftotext) et un tunnel Cloudflare, envoie la nouvelle adresse a la
+# plateforme (extractor\platform.txt) et affiche l'adresse et la cle (RAI_EXTRACT_URL, RAI_EXTRACT_KEY).
 # Ce qui manque (PHP, poppler/pdftotext, cloudflared) est telecharge dans extractor\tools.
 # Laissez la fenetre ouverte ; Ctrl+C ou fermeture = arret du service.
 
@@ -97,6 +97,15 @@ Write-Host "pdftotext  : $pdftotext"
 $soffice = Find-Exe 'soffice' @('C:\Program Files\LibreOffice\program', 'C:\Program Files (x86)\LibreOffice\program')
 if ($soffice) { Write-Host "LibreOffice: $soffice" } else { Write-Host 'LibreOffice: absent (seuls PDF, Word, Excel et PowerPoint recents seront lus)' }
 
+# ---- 3b. Tesseract (optional: scanned PDFs, OCR in Arabic and French) -------------------------
+$tesseract = Find-Exe 'tesseract' @('C:\Program Files\Tesseract-OCR', 'C:\Program Files (x86)\Tesseract-OCR')
+if ($tesseract) {
+    $env:RAI_TESSERACT_DIR = Split-Path -Parent $tesseract
+    Write-Host "Tesseract  : $tesseract"
+} else {
+    Write-Host 'Tesseract  : absent (PDF scannes non lus). Installez-le depuis https://github.com/UB-Mannheim/tesseract/wiki en cochant Arabic et French, puis relancez.'
+}
+
 # ---- 4. cloudflared --------------------------------------------------------------------------
 $cloudflared = Find-Exe 'cloudflared' @($tools, 'C:\Program Files (x86)\cloudflared', 'C:\Program Files\cloudflared')
 if (-not $cloudflared) {
@@ -115,6 +124,16 @@ if (-not (Test-Path $keyFile)) {
 }
 $key = ([IO.File]::ReadAllText($keyFile)).Trim()
 
+# ---- 5b. platform address (asked once, kept in extractor\platform.txt) ----------------------
+# With it, the new tunnel address is sent to the platform at every start: nothing to copy by hand.
+$platformFile = Join-Path $here 'platform.txt'
+if (-not (Test-Path $platformFile)) {
+    $answer = Read-Host "Adresse de la plateforme (ex. https://rapports.domaine.ma), ou Entree pour passer"
+    if ($answer) { [IO.File]::WriteAllText($platformFile, $answer.Trim().TrimEnd('/')) }
+}
+$platform = $null
+if (Test-Path $platformFile) { $platform = ([IO.File]::ReadAllText($platformFile)).Trim().TrimEnd('/') }
+
 # ---- 6. service + tunnel ---------------------------------------------------------------------
 $phpArgs += @('-S', "127.0.0.1:$port", ('"' + (Join-Path $here 'server.php') + '"'))
 $server = Start-Process -FilePath $php -ArgumentList $phpArgs -WorkingDirectory $root -NoNewWindow -PassThru `
@@ -130,7 +149,7 @@ try {
         } catch { }
     }
     if (-not $ready) { throw "Le service ne repond pas. Voir $(Join-Path $here 'server.log')" }
-    Write-Host ("Service    : OK (PDF : " + $health.pdf + ", LibreOffice : " + $health.office + ")")
+    Write-Host ("Service    : OK (PDF : " + $health.pdf + ", OCR : " + $health.ocr + ", LibreOffice : " + $health.office + ")")
 
     Write-Host 'Creation du tunnel... (10 a 30 secondes)'
     $tunnelLog = Join-Path $here 'tunnel.log'
@@ -145,15 +164,33 @@ try {
     }
     if (-not $url) { throw "Le tunnel n'a pas demarre. Voir $tunnelLog" }
 
+    # Send the new address to the platform (the tunnel can take a few seconds to answer).
+    $registered = $false
+    if ($platform) {
+        for ($i = 0; $i -lt 8 -and -not $registered; $i++) {
+            Start-Sleep -Seconds 4
+            try {
+                Invoke-RestMethod -Method Post -Uri "$platform/api/extractor/register" -Body @{ url = $url; key = $key } -UseBasicParsing | Out-Null
+                $registered = $true
+            } catch { $lastError = $_.Exception.Message }
+        }
+        if ($registered) {
+            Write-Host "Plateforme : nouvelle adresse enregistree automatiquement sur $platform"
+        } else {
+            Write-Host "Plateforme : enregistrement automatique impossible ($lastError)."
+            Write-Host "             Verifiez que la cle ci-dessous est enregistree dans la page Parametres de la plateforme."
+        }
+    }
+
     $lines = "RAI_EXTRACT_URL=$url`r`nRAI_EXTRACT_KEY=$key"
     Write-Host ''
-    Write-Host '============ A METTRE DANS LE FICHIER .env DE L''HEBERGEMENT ============'
+    Write-Host '=== A METTRE DANS LA PAGE PARAMETRES DE LA PLATEFORME (ou dans .env) ==='
     Write-Host " RAI_EXTRACT_URL=$url"
     Write-Host " RAI_EXTRACT_KEY=$key"
     Write-Host '=========================================================================='
     try { Set-Clipboard -Value $lines; Write-Host '(Les deux lignes ont ete copiees dans le presse-papiers.)' } catch { }
     Write-Host 'Laissez cette fenetre OUVERTE ; Ctrl+C ou fermeture = arret du service.'
-    Write-Host 'L''adresse change a chaque lancement : mettez a jour RAI_EXTRACT_URL dans .env.'
+    if (-not $registered) { Write-Host 'L''adresse change a chaque lancement : mettez-la a jour dans la page Parametres (ou dans .env).' }
 
     while (-not $server.HasExited -and -not $tunnel.HasExited) { Start-Sleep -Seconds 2 }
     Write-Host 'Le service ou le tunnel s''est arrete.'
