@@ -404,6 +404,25 @@ try {
     });
     check('bin/local-check.php sees the service', str_contains($out, '✔ تعمل'), $out);
 
+    echo "OCR of scanned PDFs (Tesseract)\n";
+    $scan = "$root/tests/fixtures/scanned-2021.pdf"; // two pages saved as images: no text layer
+    if (\ReportsAI\Pdf::ocrAvailable()) {
+        $u = array_values(\ReportsAI\Documents::units($scan, 'scan.pdf'));
+        check('scanned pages read with OCR (Arabic and French)', count($u) === 2 && str_contains($u[0]['text'], 'رخص البناء') && str_contains($u[0]['text'], '1240') && stripos($u[1]['text'], 'autorisations') !== false, array_map(fn ($x) => mb_substr($x['text'], 0, 80), $u));
+        $remoteScan = $withEnv($remoteEnv, fn () => \ReportsAI\Documents::units($scan, 'scan.pdf'));
+        check('OCR also done by the service on your computer (answer streamed)', $remoteScan === \ReportsAI\Documents::units($scan, 'scan.pdf'));
+        copy($scan, "$tmp/scan.pdf");
+        $sid2 = Ingest::register("$tmp/scan.pdf", 'scan.pdf', 2011, '');
+        Worker::runOnce();
+        $st = Database::pdo()->query("SELECT status, error FROM reports WHERE id = $sid2")->fetch();
+        $nf = (int) Database::pdo()->query("SELECT COUNT(*) FROM facts WHERE report_id = $sid2 AND verified = 1")->fetchColumn();
+        check('a scanned report is processed and its figures extracted', $st['status'] === 'ready' && $nf >= 3, [$st, $nf]);
+        Ingest::delete($sid2);
+        check('RAI_OCR=off: scanned pages stay empty', count($withEnv(['RAI_OCR' => 'off'], fn () => \ReportsAI\Documents::units($scan, 'scan.pdf'))) === 1);
+    } else {
+        echo "  (skipped: pdftoppm or tesseract not installed)\n";
+    }
+
     echo "Web pages\n";
     Auth::createUser('admin', 'admin-password-1', 'admin');
     Auth::createUser('agent', 'agent-password-1', 'user');

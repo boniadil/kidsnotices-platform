@@ -3,6 +3,7 @@
 # Starts the service (PHP + pdftotext) and a Cloudflare tunnel, then prints the two lines for the
 # hosting's .env file: RAI_EXTRACT_URL and RAI_EXTRACT_KEY.
 # Needs: php 8.1+, pdftotext (apt install poppler-utils | brew install poppler), cloudflared.
+# Optional: tesseract with Arabic and French (apt install tesseract-ocr-ara tesseract-ocr-fra) for scanned PDFs.
 # Keep this terminal open; Ctrl+C stops the service.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

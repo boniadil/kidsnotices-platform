@@ -72,7 +72,7 @@ final class Ingest
         $labels = array_map(fn ($u) => $u['label'], $units);
         $chars = array_sum(array_map('mb_strlen', $pages));
         if ($report['kind'] === 'pdf' && $count > 0 && $chars / $count < 40) {
-            throw new UserError('هذا الملف شبه خالٍ من النص: يبدو ممسوحاً ضوئياً. حوّله أولاً بالتعرف الضوئي على الحروف (OCR).');
+            throw new UserError('هذا الملف شبه خالٍ من النص: يبدو ممسوحاً ضوئياً. لقراءته ثبّت Tesseract (التعرف الضوئي على الحروف، بالعربية والفرنسية) على الخادم أو على حاسوبك مع خدمة قراءة الملفات، ثم اضغط «إعادة». إن كان Tesseract مثبتاً فالصورة غير واضحة.');
         }
         if ($chars < 20) {
             throw new UserError('لم يمكن قراءة أي نص من هذا الملف.');

@@ -1,4 +1,4 @@
-﻿# Reports AI - service de lecture des fichiers (PDF, .doc, .ppt) sur cet ordinateur.
+﻿# Reports AI - service de lecture des fichiers (PDF, PDF scannes, .doc, .ppt) sur cet ordinateur.
 # Lance le service (PHP + pdftotext) et un tunnel Cloudflare, puis affiche les deux lignes
 # a mettre dans le fichier .env de l'hebergement : RAI_EXTRACT_URL et RAI_EXTRACT_KEY.
 # Ce qui manque (PHP, poppler/pdftotext, cloudflared) est telecharge dans extractor\tools.
@@ -97,6 +97,15 @@ Write-Host "pdftotext  : $pdftotext"
 $soffice = Find-Exe 'soffice' @('C:\Program Files\LibreOffice\program', 'C:\Program Files (x86)\LibreOffice\program')
 if ($soffice) { Write-Host "LibreOffice: $soffice" } else { Write-Host 'LibreOffice: absent (seuls PDF, Word, Excel et PowerPoint recents seront lus)' }
 
+# ---- 3b. Tesseract (optional: scanned PDFs, OCR in Arabic and French) -------------------------
+$tesseract = Find-Exe 'tesseract' @('C:\Program Files\Tesseract-OCR', 'C:\Program Files (x86)\Tesseract-OCR')
+if ($tesseract) {
+    $env:RAI_TESSERACT_DIR = Split-Path -Parent $tesseract
+    Write-Host "Tesseract  : $tesseract"
+} else {
+    Write-Host 'Tesseract  : absent (PDF scannes non lus). Installez-le depuis https://github.com/UB-Mannheim/tesseract/wiki en cochant Arabic et French, puis relancez.'
+}
+
 # ---- 4. cloudflared --------------------------------------------------------------------------
 $cloudflared = Find-Exe 'cloudflared' @($tools, 'C:\Program Files (x86)\cloudflared', 'C:\Program Files\cloudflared')
 if (-not $cloudflared) {
@@ -130,7 +139,7 @@ try {
         } catch { }
     }
     if (-not $ready) { throw "Le service ne repond pas. Voir $(Join-Path $here 'server.log')" }
-    Write-Host ("Service    : OK (PDF : " + $health.pdf + ", LibreOffice : " + $health.office + ")")
+    Write-Host ("Service    : OK (PDF : " + $health.pdf + ", OCR : " + $health.ocr + ", LibreOffice : " + $health.office + ")")
 
     Write-Host 'Creation du tunnel... (10 a 30 secondes)'
     $tunnelLog = Join-Path $here 'tunnel.log'
