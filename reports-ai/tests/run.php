@@ -489,6 +489,37 @@ try {
         $st16 = Database::pdo()->query("SELECT status FROM reports WHERE year = 2016")->fetchColumn();
     }
     check('CSV uploaded from the page and processed in the background', $st16 === 'ready', $st16);
+
+    // Settings page and self-registration of the file-reading service.
+    [$st, , $body] = $http('GET', '/settings');
+    check('settings page for the admin', $st === 200 && str_contains($body, 'من يجيب عن كل مهمة') && str_contains($body, 'خدمة قراءة الملفات'));
+    $svcKey = 'test-extract-key-0123456789';
+    [$st, $hd] = $http('POST', '/settings', ['csrf' => $csrf, 'RAI_PROVIDER_REPAIR' => 'local', 'RAI_EXTRACT_KEY' => $svcKey, 'RAI_EXTRACT_URL' => '', 'RAI_LOCAL_MODEL' => 'qwen2.5:3b']);
+    \ReportsAI\Settings::reload();
+    check('settings saved and used (database wins over .env)', $st === 303 && \ReportsAI\Config::provider('repair') === 'local' && \ReportsAI\Config::get('RAI_EXTRACT_KEY') === $svcKey && \ReportsAI\Config::localModel('ask') === 'qwen2.5:3b');
+    [, , $body] = $http('GET', '/settings');
+    check('saved secrets are never shown back', !str_contains($body, $svcKey) && str_contains($body, '••••' . substr($svcKey, -4)));
+    $http('POST', '/settings', ['csrf' => $csrf, 'RAI_EXTRACT_KEY' => '']);
+    \ReportsAI\Settings::reload();
+    check('a secret left empty is kept', \ReportsAI\Config::get('RAI_EXTRACT_KEY') === $svcKey);
+    [$st, , $body] = $http('POST', '/api/settings/test', ['what' => 'extractor', 'url' => "http://127.0.0.1:$extractPort"], ["X-CSRF-Token: $csrf"]);
+    $t = json_decode($body, true);
+    check('"test connection" reaches the service', $st === 200 && ($t['ok'] ?? false) === true && ($t['pdf'] ?? false) === true, $body);
+    $register = function (string $key, string $url) use ($base) {
+        $ch = curl_init("$base/api/extractor/register");
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_POSTFIELDS => http_build_query(['url' => $url]), CURLOPT_HTTPHEADER => ["Authorization: Bearer $key"]]);
+        $b = (string) curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        return [$code, json_decode($b, true)];
+    };
+    check('service registration with a wrong key refused', $register('wrong-key-wrong-key-123', "http://127.0.0.1:$extractPort")[0] === 401);
+    check('service registration of an unsafe address refused', $register($svcKey, 'http://example.com')[0] === 422);
+    check('service registration of an address that does not answer refused', $register($svcKey, 'http://127.0.0.1:' . $freePort())[0] === 422);
+    [$code, $r] = $register($svcKey, "http://127.0.0.1:$extractPort/");
+    \ReportsAI\Settings::reload();
+    check('the service registers its new address by itself', $code === 200 && ($r['ok'] ?? false) && \ReportsAI\Config::get('RAI_EXTRACT_URL') === "http://127.0.0.1:$extractPort", [$code, $r]);
+    \ReportsAI\Settings::set(array_fill_keys(array_keys(\ReportsAI\Settings::KEYS), ''));
     $http('POST', '/logout', ['csrf' => $csrf]);
     [, , $body] = $http('GET', '/login');
     preg_match('/name="csrf" value="([a-f0-9]+)"/', $body, $m);
@@ -497,6 +528,8 @@ try {
     preg_match('/name="csrf-token" content="([a-f0-9]+)"/', $body, $m);
     check('non-admin does not see the upload form', !str_contains($body, 'إضافة تقرير سنوي'));
     $http('POST', '/reports/delete', ['csrf' => $m[1] ?? '', 'id' => 1]);
+    [$st, , $body] = $http('GET', '/settings');
+    check('non-admin cannot open the settings', $st === 400 && !str_contains($body, 'RAI_EXTRACT_KEY'));
     check('non-admin cannot delete reports', (int) Database::pdo()->query('SELECT COUNT(*) FROM reports WHERE id = 1')->fetchColumn() === 1);
 } finally {
     foreach ($procs as $p) {

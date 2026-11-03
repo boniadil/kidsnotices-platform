@@ -1,5 +1,7 @@
 # Apache: every request goes to index.php (except real files: CSS, JS).
 RewriteEngine On
+# Keep the Authorization header for PHP (dropped by some CGI/FPM setups).
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^ index.php [QSA,L]
 # Larger uploads for annual reports (if PHP runs as an Apache module).

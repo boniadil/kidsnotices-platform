@@ -19,9 +19,11 @@ declare(strict_types=1);
 use ReportsAI\Config;
 use ReportsAI\Documents;
 use ReportsAI\Pdf;
+use ReportsAI\Settings;
 use ReportsAI\UserError;
 
 require dirname(__DIR__) . '/src/autoload.php';
+Settings::$enabled = false; // no database on this computer: settings come from the environment
 
 $reply = function (int $status, array $data): never {
     http_response_code($status);

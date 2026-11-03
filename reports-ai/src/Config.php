@@ -28,10 +28,21 @@ final class Config
         }
     }
 
+    /** Settings saved from the admin page (Settings::KEYS) win over .env and the environment. */
     public static function get(string $key, ?string $default = null): ?string
     {
+        if (isset(Settings::KEYS[$key]) && ($saved = Settings::get($key)) !== null) {
+            return $saved;
+        }
         $value = getenv($key);
         return ($value === false || $value === '') ? $default : $value;
+    }
+
+    /** Value from .env / the environment only (what applies when nothing is saved in the page). */
+    public static function env(string $key): ?string
+    {
+        $value = getenv($key);
+        return ($value === false || $value === '') ? null : $value;
     }
 
     public static function root(): string
